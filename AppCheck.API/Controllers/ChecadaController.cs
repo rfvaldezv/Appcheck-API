@@ -37,11 +37,10 @@ public class ChecadaController : ControllerBase
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
     {
         // 1. Validar que el Punto de Lectura exista y esté activo
+        //    El token se hashea con SHA-256 antes de comparar (igual que en KioskoController)
+        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.TokenPuntoLectura)));
         var puntoLectura = await _db.PuntosLectura
-            .FirstOrDefaultAsync(p => p.TokenHash == request.TokenPuntoLectura && p.EstadoLicencia != "Suspendido");
-
-        if (puntoLectura == null)
-            return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
+            .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
 
         // 2. Buscar el empleado en la cuenta del punto de lectura
         var empleado = await _db.Empleados
