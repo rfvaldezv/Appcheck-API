@@ -196,6 +196,8 @@ SaaS mexicano que convierte cualquier dispositivo Android (tablet empotrable o c
 
 \- \[x] Segunda checada → \*\*Salida\*\* detectada automáticamente con hash `AAEC9ED2...`
 
+\- \[x] Build limpio: 0 errores, 0 advertencias (nullable resuelto en ChecadaController).
+
 
 
 \---
