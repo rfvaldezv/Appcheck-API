@@ -1,0 +1,19 @@
+﻿# .NET
+bin/
+obj/
+*.user
+.vs/
+*.db
+
+# Secretos - NUNCA subir a GitHub
+appsettings.Development.json
+appsettings.Production.json
+appsettings.json
+
+# Archivos generados
+*.sql
+*.log
+*.tmp
+
+# VS Code
+.vscode/

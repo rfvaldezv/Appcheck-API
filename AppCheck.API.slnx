@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="AppCheck.API/AppCheck.API.csproj" />
+  <Project Path="AppCheck.Data/AppCheck.Data.csproj" />
+</Solution>

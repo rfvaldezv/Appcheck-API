@@ -1,0 +1,6 @@
+@AppCheck.API_HostAddress = http://localhost:5295
+
+GET {{AppCheck.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
