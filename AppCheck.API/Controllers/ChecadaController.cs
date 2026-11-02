@@ -42,6 +42,9 @@ public class ChecadaController : ControllerBase
         var puntoLectura = await _db.PuntosLectura
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
 
+        if (puntoLectura == null)
+            return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
+
         // 2. Buscar el empleado en la cuenta del punto de lectura
         var empleado = await _db.Empleados
             .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado && e.CuentaId == puntoLectura.CuentaId);
@@ -53,8 +56,9 @@ public class ChecadaController : ControllerBase
             return BadRequest(new { mensaje = "El empleado está inactivo. Contacta al administrador." });
 
         // 3. Determinar si es entrada o salida automáticamente
+        var hoy = DateTimeOffset.UtcNow.Date;
         var ultimaChecada = await _db.RegistrosJornada
-            .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == DateTimeOffset.UtcNow.Date)
+            .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
             .OrderByDescending(r => r.TimestampServidor)
             .FirstOrDefaultAsync();
 
