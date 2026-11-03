@@ -24,6 +24,7 @@ public class EmployeeController : ControllerBase
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "Mix";
+        public string? FotoBase64 { get; set; }
     }
 
     [HttpPost]
@@ -51,6 +52,7 @@ public class EmployeeController : ControllerBase
             NombreCompleto = request.NombreCompleto,
             PinRespaldo = request.PinRespaldo,
             MetodoLecturaPreferido = request.MetodoLecturaPreferido,
+            FaceTemplateHash = request.FotoBase64,
             Estado = "Activo"
         };
 

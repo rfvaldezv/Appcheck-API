@@ -369,3 +369,148 @@ SELECT COUNT(\*) FROM AppcheckAPI.dbo.Cuentas; -- Debe ser >= 1
 2. Implementar AppCheck_Employee (BYOD) con GPS y selfie.
 3. Implementar QR Dinámico (TOTP) para antifraude.
 4. Despliegue a VPS (configuración de producción).
+
+# 🚀 AppCheck - Seguimiento del Proyecto
+
+> **Última actualización:** 03/11/2026
+> **Estado:** SaaS en Producción (API, Admin, Landing) + Kiosko con QR y Facial funcionando.
+
+---
+
+## 📌 ¿Qué es AppCheck?
+
+SaaS mexicano que convierte cualquier dispositivo Android (tablet empotrable o celular de último usuario) en un reloj checador con **validez legal ante la STPS**, respaldo en la nube y modo offline. Resuelve la obligación del artículo 132, fracción XXXIV de la LFT (vigente a partir del 1 de enero de 2027) sin que las PYMES tengan que comprar hardware costoso.
+
+**Tagline:** *"Checa a tu equipo. Cumple con la STPS."*
+
+---
+
+## 🌍 Estado de Producción (Dominios y URLs)
+
+- **Landing Page:** `https://appcheck.com.mx` (en vivo con SEO, branding y AIMe).
+- **API (Backend):** `https://api.appcheck.com.mx` (en vivo, .NET 10, conectada a SQL Server en VPS).
+- **Admin (Flutter Web):** `https://admin.appcheck.com.mx` (en vivo, responsivo para móvil).
+- **Kiosko (Flutter Android):** APK generado e instalado en celular físico, conectado a producción.
+
+---
+
+## 🏛️ Arquitectura de Negocio (Multi-Nivel)
+
+| Nivel | Rol | Qué hace |
+|-------|-----|----------|
+| 1 | **SuperAdmin (AppCheck)** | Control total, facturación, gestión de vendedores. |
+| 2 | **Vendedor / Distribuidor** | Gestiona su cartera, recibe comisiones (fijo + variable). |
+| 3a | **Cliente Corporativo** | Centraliza reportes de múltiples sucursales. |
+| 3b | **Cliente Independiente** | PYME con uno o pocos kioskos. |
+| 4 | **Admin (Administrativo)** | Gestiona empleados y kioskos de su sucursal. |
+| 5 | **Contador** | Solo lectura de reportes y descarga de paquetes STPS. |
+
+---
+
+## 🛡️ Modelo de Licenciamiento
+
+- **Puntos de Lectura:** Kiosko Fijo (tablet empotrada) y Punto Personal (celular del empleado - BYOD).
+- **Licenciamiento:** Por empleados (límite de plan) y por kiosko (licencia mensual).
+- **Modo Policía:** Offline-first. Si no hay pago, el kiosko entra en "Gracia" (7 días) y luego "Restringido" (checa con bandera, pero notifica al SuperAdmin).
+- **Códigos de Activación:** 8 caracteres, hasheados, expiración 72h, vinculados al `deviceId`.
+
+---
+
+## 🏗️ Arquitectura Técnica
+
+- **Backend:** .NET 10 (C#), Entity Framework Core, SQL Server.
+- **Frontend Kiosko:** Flutter / Dart (Android only).
+- **Frontend Admin:** Flutter Web (Responsive: Sidebar en PC, Drawer en móvil).
+- **Base de Datos:** SQL Server (local en `C:\Aplica` y VPS de producción).
+- **Caché Local (Kiosko):** Drift (SQLite) con sincronización vía WorkManager (pendiente).
+- **Repositorios:**
+  - API: https://github.com/rfvaldezv/Appcheck-API.git
+  - Admin: https://github.com/rfvaldezv/Appcheck-Admin.git
+  - Kiosko: https://github.com/rfvaldezv/Appcheck-Kiosko.git
+
+---
+
+## ✅ Lo que YA está hecho (Hitos Alcanzados)
+
+### 1. Backend (API)
+- [x] Autenticación JWT (Login, Seed de SuperAdmin).
+- [x] Gestión de Empleados (Alta con acuse legal, Edición, Eliminación).
+- [x] Registro de Checadas (Hash SHA-256, detección automática Entrada/Salida).
+- [x] Gestión de Kioskos (Generar código, Activar, Regenerar, Revocar, Eliminar).
+- [x] Facturación (Planes, Suscripciones, Generar Factura, Marcar Pagada).
+- [x] Comisiones (Cálculo de MRR y comisión para Vendedor).
+- [x] CORS configurado y `MapInboundClaims = false` para JWT en .NET 10.
+
+### 2. Admin (Flutter Web)
+- [x] Login funcional con "ojito" para ver contraseña.
+- [x] Dashboard con Sidebar (PC) y Drawer (Móvil) para diseño responsivo.
+- [x] CRUD de Kioskos (Alta Directa, Generar Código, Editar, Revocar, Eliminar, Buscador).
+- [x] CRUD de Empleados (Alta con captura de foto facial opcional, Editar, Eliminar).
+- [x] Reportes STPS (Filtro por fechas, descarga de CSV).
+- [x] Vista de Mi Suscripción y Facturas.
+- [x] Vista de Comisiones (para rol Vendedor).
+- [x] **Registro Biométrico:** Botones de "Tomar Foto" y "Subir Foto" al dar de alta empleado.
+
+### 3. Kiosko (Flutter Android)
+- [x] Activación con código de 8 caracteres (con formateo automático y botón de pegar).
+- [x] Cámara QR funcional (`mobile_scanner`).
+- [x] Flujo de Reconocimiento Facial (Doble Check: escanea QR -> abre cámara frontal -> registra checada).
+- [x] Conexión a API de producción (`https://api.appcheck.com.mx`).
+- [x] Generación de APK de Producción.
+
+### 4. Landing Page (HTML/CSS)
+- [x] En vivo en `appcheck.com.mx`.
+- [x] SEO optimizado (Meta Tags, Schema.org, Open Graph, Keywords).
+- [x] Branding completo (Logo, Favicon, Paleta de colores, Tipografía Inter).
+- [x] Secciones: Hero, Características, Precios, FAQ, Footer con "AIMe".
+
+---
+
+## 🚧 Lo que FALTA (Backlog Priorizado)
+
+### Fase 1: Blindaje del Producto (Corto Plazo)
+- [ ] **Validación Facial Real:** Implementar la comparación biométrica en la API (comparar la foto del QR con la foto del expediente guardada en `FaceTemplateHash`).
+- [ ] **Modo "Index Facial" (1:N):** Que el Kiosko reconozca al empleado sin QR (ideal para oficinas pequeñas).
+- [ ] **Acuse en PDF:** Generar el PDF del acuse de acuerdo legal con QuestPDF.
+- [ ] **Modo Offline en Kiosko:** Implementar Drift (SQLite) para que el kiosko funcione sin internet y sincronice después.
+
+### Fase 2: Crecimiento (Mediano Plazo)
+- [ ] **AppCheck_Employee (BYOD):** App móvil para que el empleado chequee desde su celular con GPS (geocercas).
+- [ ] **QR Dinámico (TOTP):** Implementar el QR antifraude que cambia cada 30 segundos.
+- [ ] **Facturación Real (CFDI):** Integrar un PAC para generar facturas fiscales reales.
+
+### Fase 3: Hardening (Largo Plazo)
+- [ ] **Contraseñas Hasheadas:** Migrar de texto plano a BCrypt.
+- [ ] **Variables de Entorno:** Mover secretos (JWT Key, Connection String) a Azure Key Vault o variables del sistema en IIS.
+- [ ] **Pruebas de Carga:** Validar que la API soporte 50+ checadas simultáneas.
+
+---
+
+## 🔄 Cómo retomar el proyecto en 2 minutos
+
+### 1. Verificar el VPS y la Base de Datos
+- Conéctate por RDP al VPS.
+- Abre SSMS y verifica que la base de datos `AppcheckAPI` esté en línea.
+
+### 2. Verificar que la API esté en línea
+Abre en el navegador: `https://api.appcheck.com.mx/api/health`
+Debería devolver: `{"status":"AppCheck API funcionando",...}`
+
+### 3. Probar el Admin en producción
+Abre: `https://admin.appcheck.com.mx`
+- Email: `admin@appcheck.com.mx`
+- Password: `Admin123!`
+
+### 4. Para Desarrollo Local (si es necesario)
+```powershell
+# API Local (para desarrollo)
+Set-Location "C:\Aplica\Appcheck_API\AppCheck.API"
+dotnet run --project "C:\Aplica\Appcheck_API\AppCheck.API\AppCheck.API.csproj" --urls "http://0.0.0.0:5123;https://localhost:7123"
+
+# Admin Local
+Set-Location "C:\Aplica\Appcheck_Admin"
+flutter run -d chrome --dart-define=API_URL=https://api.appcheck.com.mx
+
+# Kiosko Local (en emulador)
+Set-Location "C:\Aplica\Appcheck_Kiosko"
+flutter run -d emulator-5554 --dart-define=API_URL=https://api.appcheck.com.mx
