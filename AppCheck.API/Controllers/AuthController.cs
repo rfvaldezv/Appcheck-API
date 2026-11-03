@@ -1,5 +1,10 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
 using AppCheck.API.DTOs;
 using AppCheck.API.Services;
 using AppCheck.Data;
@@ -13,11 +18,13 @@ public class AuthController : ControllerBase
 {
     private readonly AppCheckDbContext _db;
     private readonly JwtService _jwtService;
+    private readonly IConfiguration _config;
 
-    public AuthController(AppCheckDbContext db, JwtService jwtService)
+    public AuthController(AppCheckDbContext db, JwtService jwtService, IConfiguration config)
     {
         _db = db;
         _jwtService = jwtService;
+        _config = config;
     }
 
     [HttpPost("login")]
@@ -93,5 +100,47 @@ public class AuthController : ControllerBase
             email = admin.Email,
             password = "Admin123!"
         });
+    }
+
+    [HttpGet("test-token")]
+    [AllowAnonymous]
+    public IActionResult TestToken([FromQuery] string token)
+    {
+        try
+        {
+            var handler = new JwtSecurityTokenHandler();
+            var key = Encoding.UTF8.GetBytes(_config["Jwt:Key"]!);
+
+            var principal = handler.ValidateToken(token, new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = _config["Jwt:Issuer"],
+                ValidAudience = _config["Jwt:Audience"],
+                IssuerSigningKey = new SymmetricSecurityKey(key)
+            }, out var validatedToken);
+
+            return Ok(new
+            {
+                mensaje = "Token válido",
+                issuer = _config["Jwt:Issuer"],
+                audience = _config["Jwt:Audience"],
+                keyLength = _config["Jwt:Key"]!.Length,
+                claims = principal.Claims.Select(c => new { c.Type, c.Value })
+            });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new
+            {
+                mensaje = "Token inválido",
+                error = ex.Message,
+                issuer = _config["Jwt:Issuer"],
+                audience = _config["Jwt:Audience"],
+                keyLength = _config["Jwt:Key"]?.Length
+            });
+        }
     }
 }

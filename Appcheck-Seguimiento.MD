@@ -337,3 +337,18 @@ SELECT COUNT(\*) FROM AppcheckAPI.dbo.Cuentas; -- Debe ser >= 1
 3. AppCheck_Employee (BYOD) con GPS y selfie.
 4. QR Dinámico (TOTP) antifraude.
 5. Despliegue a VPS.
+
+### Sesión 5 (02/11/2026) - Módulo de Facturación 100%
+- [x] **Backend:** Endpoints de planes, suscripciones, facturas y comisiones funcionando.
+- [x] **Frontend Admin:**
+  - Vista de "Mi Suscripción" (plan PYME Básico activo).
+  - Vista de "Facturas" (generación y marcado de pago).
+  - Vista de "Comisiones" (solo para Vendedor, con desglose y total estimado).
+- [x] **Fix crítico:** Configuración de JWT con `MapInboundClaims = false` para .NET 10.
+- [x] **Pruebas exitosas:** Login de Vendedor, endpoint de comisiones y vista en el Admin.
+
+**Siguientes pasos:**
+1. Cámara Real en AppCheck_Kiosko (Flutter).
+2. AppCheck_Employee (BYOD) con GPS y selfie.
+3. QR Dinámico (TOTP) antifraude.
+4. Despliegue a VPS.

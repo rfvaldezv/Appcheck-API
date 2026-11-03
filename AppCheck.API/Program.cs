@@ -22,6 +22,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.MapInboundClaims = false; // 👈 Evita que .NET renombre los claims
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -30,7 +31,9 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        NameClaimType = "sub",           // 👈 Le dice a .NET que el claim "sub" es el nombre
+        RoleClaimType = "Rol"            // 👈 Le dice a .NET que el claim "Rol" es el rol
     };
 });
 
@@ -39,7 +42,7 @@ builder.Services.AddSingleton<JwtService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 4. Configurar CORS para Flutter Web (desarrollo)
+// 4. Configurar CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -84,8 +87,14 @@ if (app.Environment.IsDevelopment())
 app.UseCors("AllowAll");
 
 app.UseHttpsRedirection();
-app.UseAuthentication();
-app.UseAuthorization();
+app.Use(async (context, next) =>
+{
+    var authHeader = context.Request.Headers["Authorization"].ToString();
+    Console.WriteLine($"=====> Authorization Header: {(string.IsNullOrEmpty(authHeader) ? "VACÍO" : authHeader.Substring(0, Math.Min(60, authHeader.Length)) + "...")}");
+    await next();
+});
+app.UseAuthentication();  // 👈 Validación del token JWT
+app.UseAuthorization();   // 👈 Verificación de roles
 app.MapControllers();
 
 // 7. Endpoint de health

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using AppCheck.Data;
 using AppCheck.Data.Entities;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 namespace AppCheck.API.Controllers;
 
@@ -44,7 +45,7 @@ public class FacturacionController : ControllerBase
     // 2. OBTENER SUSCRIPCIÓN DE LA CUENTA (protegido)
     // =====================================================
     [HttpGet("mi-suscripcion")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public async Task<IActionResult> MiSuscripcion()
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
@@ -88,7 +89,7 @@ public class FacturacionController : ControllerBase
     }
 
     [HttpPost("asignar-plan")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public async Task<IActionResult> AsignarPlan([FromBody] AsignarPlanRequest request)
     {
         // Solo SuperAdmin puede hacer esto
@@ -138,7 +139,7 @@ public class FacturacionController : ControllerBase
     // 4. LISTAR FACTURAS DE LA CUENTA (protegido)
     // =====================================================
     [HttpGet("facturas")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public async Task<IActionResult> ListarFacturas()
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
@@ -172,7 +173,7 @@ public class FacturacionController : ControllerBase
     // 5. GENERAR FACTURA DEL MES ACTUAL (protegido)
     // =====================================================
     [HttpPost("facturas/generar")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public async Task<IActionResult> GenerarFactura()
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
@@ -237,7 +238,7 @@ public class FacturacionController : ControllerBase
     // 6. CALCULAR COMISIÓN DEL VENDEDOR (protegido)
     // =====================================================
     [HttpGet("comisiones")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public async Task<IActionResult> MisComisiones()
     {
         var usuarioIdClaim = User.FindFirst("sub")?.Value;
@@ -288,7 +289,7 @@ public class FacturacionController : ControllerBase
     // 7. MARCAR FACTURA COMO PAGADA (protegido)
     // =====================================================
     [HttpPost("facturas/{facturaId}/pagar")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public async Task<IActionResult> MarcarFacturaPagada(Guid facturaId)
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
@@ -311,5 +312,21 @@ public class FacturacionController : ControllerBase
         await _db.SaveChangesAsync();
 
         return Ok(new { mensaje = "Factura marcada como pagada correctamente.", facturaId });
+    }
+
+    [HttpGet("test-auth")]
+    [AllowAnonymous]
+    public IActionResult TestAuth()
+    {
+        var isAuthenticated = User.Identity?.IsAuthenticated ?? false;
+        var claims = User.Claims.Select(c => new { c.Type, c.Value }).ToList();
+        var authHeader = Request.Headers["Authorization"].ToString();
+        
+        return Ok(new
+        {
+            isAuthenticated,
+            authHeader = string.IsNullOrEmpty(authHeader) ? "VACÍO" : authHeader.Substring(0, Math.Min(50, authHeader.Length)) + "...",
+            claims
+        });
     }
 }
