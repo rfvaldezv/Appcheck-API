@@ -86,7 +86,10 @@ if (app.Environment.IsDevelopment())
 // Habilitar CORS (debe ir ANTES de Authentication y Authorization)
 app.UseCors("AllowAll");
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 app.Use(async (context, next) =>
 {
     var authHeader = context.Request.Headers["Authorization"].ToString();

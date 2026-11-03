@@ -352,3 +352,20 @@ SELECT COUNT(\*) FROM AppcheckAPI.dbo.Cuentas; -- Debe ser >= 1
 2. AppCheck_Employee (BYOD) con GPS y selfie.
 3. QR Dinámico (TOTP) antifraude.
 4. Despliegue a VPS.
+
+### Sesión 6 (02/11/2026) - Kiosko Funcional y Fin de Sesión
+- [x] **AppCheck_Kiosko (Flutter):**
+  - Pantalla de activación con formateo automático de código y botón de pegar.
+  - Cámara activada con `mobile_scanner` y overlay de escaneo.
+  - Conexión exitosa a la API a través de `adb reverse` (túnel de emulador).
+  - Manejo de errores robusto (sin FormatException).
+- [x] **Backend:** Desactivada la redirección a HTTPS en entorno de desarrollo para permitir HTTP desde el emulador.
+- [x] **Flujo de activación completo:** Generación de código -> Activación en Kiosko -> Token guardado.
+- [x] **Pendiente para próxima sesión:** Prueba de escaneo real de QR en dispositivo físico.
+- [x] **Estado del proyecto:** Backend, Admin y Kiosko (base) funcionando. Listo para pruebas en hardware real.
+
+**Siguientes pasos:**
+1. **Probar en celular físico:** Escaneo de QR real y flujo completo de checada.
+2. Implementar AppCheck_Employee (BYOD) con GPS y selfie.
+3. Implementar QR Dinámico (TOTP) para antifraude.
+4. Despliegue a VPS (configuración de producción).

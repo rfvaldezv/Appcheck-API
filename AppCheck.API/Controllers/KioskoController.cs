@@ -38,20 +38,37 @@ public class KioskoController : ControllerBase
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
 
-        // Generar código de 8 caracteres (sin O/0, I/1 para evitar confusión)
+        // 1. Crear el Punto de Lectura en estado "Pendiente"
+        var puntoLectura = new PuntoLectura
+        {
+            CuentaId = cuentaId,
+            Nombre = request.NombreKiosko,
+            Tipo = request.Tipo,
+            DeviceId = null, // Se llenará cuando el dispositivo se active
+            TokenHash = "", // Se llenará cuando el dispositivo se active
+            EstadoLicencia = "Pendiente",
+            FechaExpiracionLicencia = null,
+            UltimoHeartbeat = null
+        };
+
+        _db.PuntosLectura.Add(puntoLectura);
+        await _db.SaveChangesAsync();
+
+        // 2. Generar el código de activación (8 caracteres)
         var alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         var random = new Random();
         var codigoPlano = new string(Enumerable.Range(0, 8)
             .Select(_ => alfabeto[random.Next(alfabeto.Length)]).ToArray());
         var codigoFormateado = $"{codigoPlano[..4]}-{codigoPlano[4..]}";
 
-        // Hashear el código
+        // 3. Hashear el código
         var codigoHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(codigoPlano)));
 
-        // Guardar en BD
+        // 4. Guardar el código de activación vinculado al Punto de Lectura
         var codigoActivacion = new CodigoActivacion
         {
             CuentaId = cuentaId,
+            PuntoLecturaId = puntoLectura.PuntoLecturaId, // 👈 Vinculado al kiosko
             CodigoHash = codigoHash,
             Tipo = "Activacion",
             Estado = "Pendiente",
@@ -64,9 +81,10 @@ public class KioskoController : ControllerBase
         return Ok(new
         {
             mensaje = "Código de activación generado. Compártelo con el dispositivo.",
+            puntoLecturaId = puntoLectura.PuntoLecturaId,
             codigo = codigoFormateado,
-            nombreKiosko = request.NombreKiosko,
-            tipo = request.Tipo,
+            nombreKiosko = puntoLectura.Nombre,
+            tipo = puntoLectura.Tipo,
             expiraEn = codigoActivacion.ExpiraEn,
             instrucciones = "El dispositivo debe ingresar este código en la pantalla de activación de la app AppCheck."
         });
@@ -87,9 +105,13 @@ public class KioskoController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> ActivarKiosko([FromBody] ActivarKioskoRequest request)
     {
+        Console.WriteLine($"=====> ActivarKiosko llamado con código: {request.Codigo}");
+        
         // 1. Normalizar el código (quitar guiones y espacios)
         var codigoPlano = request.Codigo.Replace("-", "").Replace(" ", "").ToUpper();
         var codigoHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(codigoPlano)));
+        
+        Console.WriteLine($"=====> Código hash: {codigoHash}");
 
         // 2. Buscar el código en la BD
         var codigoActivacion = await _db.CodigosActivacion
@@ -358,6 +380,79 @@ public class KioskoController : ControllerBase
             tipo = puntoLectura.Tipo,
             tokenPuntoLectura = tokenPuntoLectura, // ⚠️ Solo se muestra una vez
             advertencia = "Guarda este token en lugar seguro. No se volverá a mostrar."
+        });
+    }
+
+    // =====================================================
+    // 10. REGENERAR CÓDIGO DE ACTIVACIÓN (protegido)
+    // =====================================================
+    [HttpPost("{puntoLecturaId}/regenerar-codigo")]
+    [Authorize]
+    public async Task<IActionResult> RegenerarCodigo(Guid puntoLecturaId)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized(new { mensaje = "Token inválido." });
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        // 1. Buscar el kiosko
+        var puntoLectura = await _db.PuntosLectura
+            .FirstOrDefaultAsync(p => p.PuntoLecturaId == puntoLecturaId && p.CuentaId == cuentaId);
+
+        if (puntoLectura == null)
+            return NotFound(new { mensaje = "Kiosko no encontrado." });
+
+        // 2. No se puede regenerar si está activo
+        if (puntoLectura.EstadoLicencia == "Activa")
+            return BadRequest(new { mensaje = "El kiosko está activo. Primero revócalo para poder regenerar el código." });
+
+        // 3. Invalidar códigos anteriores
+        var codigosAnteriores = await _db.CodigosActivacion
+            .Where(c => c.PuntoLecturaId == puntoLecturaId && c.Estado == "Pendiente")
+            .ToListAsync();
+
+        foreach (var codigo in codigosAnteriores)
+        {
+            codigo.Estado = "Expirado";
+        }
+
+        // 4. Generar nuevo código
+        var alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        var random = new Random();
+        var codigoPlano = new string(Enumerable.Range(0, 8)
+            .Select(_ => alfabeto[random.Next(alfabeto.Length)]).ToArray());
+        var codigoFormateado = $"{codigoPlano[..4]}-{codigoPlano[4..]}";
+        var codigoHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(codigoPlano)));
+
+        var nuevoCodigo = new CodigoActivacion
+        {
+            CuentaId = cuentaId,
+            PuntoLecturaId = puntoLecturaId,
+            CodigoHash = codigoHash,
+            Tipo = "Activacion",
+            Estado = "Pendiente",
+            ExpiraEn = DateTimeOffset.UtcNow.AddHours(72)
+        };
+
+        _db.CodigosActivacion.Add(nuevoCodigo);
+
+        // 5. Si estaba suspendido, volver a "Pendiente"
+        if (puntoLectura.EstadoLicencia == "Suspendido")
+        {
+            puntoLectura.EstadoLicencia = "Pendiente";
+        }
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            mensaje = "Código regenerado correctamente.",
+            puntoLecturaId = puntoLectura.PuntoLecturaId,
+            codigo = codigoFormateado,
+            nombreKiosko = puntoLectura.Nombre,
+            expiraEn = nuevoCodigo.ExpiraEn,
+            instrucciones = "El dispositivo debe ingresar este código en la pantalla de activación."
         });
     }
 }
