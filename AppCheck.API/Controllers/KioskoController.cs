@@ -238,4 +238,126 @@ public class KioskoController : ControllerBase
 
         return Ok(new { mensaje = "Kiosko revocado. No podrá seguir checando.", puntoLecturaId });
     }
+
+    // =====================================================
+    // 6. EDITAR KIOSKO (protegido con JWT)
+    // =====================================================
+    public class EditarKioskoRequest
+    {
+        public string Nombre { get; set; } = string.Empty;
+        public string Tipo { get; set; } = string.Empty;
+    }
+
+    [HttpPut("{puntoLecturaId}")]
+    [Authorize]
+    public async Task<IActionResult> EditarKiosko(Guid puntoLecturaId, [FromBody] EditarKioskoRequest request)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        var puntoLectura = await _db.PuntosLectura
+            .FirstOrDefaultAsync(p => p.PuntoLecturaId == puntoLecturaId && p.CuentaId == cuentaId);
+
+        if (puntoLectura == null)
+            return NotFound(new { mensaje = "Kiosko no encontrado en tu cuenta." });
+
+        puntoLectura.Nombre = request.Nombre;
+        puntoLectura.Tipo = request.Tipo;
+        
+        await _db.SaveChangesAsync();
+
+        return Ok(new { mensaje = "Kiosko actualizado correctamente.", puntoLecturaId });
+    }
+
+    // =====================================================
+    // 7. ELIMINAR KIOSKO (protegido con JWT)
+    // =====================================================
+    [HttpDelete("{puntoLecturaId}")]
+    [Authorize]
+    public async Task<IActionResult> EliminarKiosko(Guid puntoLecturaId)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        var puntoLectura = await _db.PuntosLectura
+            .FirstOrDefaultAsync(p => p.PuntoLecturaId == puntoLecturaId && p.CuentaId == cuentaId);
+
+        if (puntoLectura == null)
+            return NotFound(new { mensaje = "Kiosko no encontrado en tu cuenta." });
+
+        // Verificar si tiene checadas registradas
+        var tieneChecadas = await _db.RegistrosJornada
+            .AnyAsync(r => r.PuntoLecturaId == puntoLecturaId);
+
+        if (tieneChecadas)
+            return BadRequest(new { mensaje = "No se puede eliminar el kiosko porque tiene registros de checadas asociados. Usa 'Revocar' en su lugar." });
+
+        _db.PuntosLectura.Remove(puntoLectura);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { mensaje = "Kiosko eliminado correctamente." });
+    }
+
+    // =====================================================
+    // 8. ALTA DIRECTA DE KIOSKO (protegido con JWT)
+    // =====================================================
+    public class AltaDirectaKioskoRequest
+    {
+        public string Nombre { get; set; } = string.Empty;
+        public string Tipo { get; set; } = "KioskoFijo";
+        public string DeviceId { get; set; } = string.Empty;
+    }
+
+    [HttpPost("alta-directa")]
+    [Authorize]
+    public async Task<IActionResult> AltaDirectaKiosko([FromBody] AltaDirectaKioskoRequest request)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        // Verificar que el deviceId no esté ya registrado
+        var deviceExistente = await _db.PuntosLectura
+            .FirstOrDefaultAsync(p => p.DeviceId == request.DeviceId && p.CuentaId == cuentaId);
+
+        if (deviceExistente != null)
+            return BadRequest(new { mensaje = "Este dispositivo ya está registrado." });
+
+        // Generar token
+        var tokenPuntoLectura = Guid.NewGuid().ToString("N");
+        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tokenPuntoLectura)));
+
+        var puntoLectura = new PuntoLectura
+        {
+            CuentaId = cuentaId,
+            Nombre = request.Nombre,
+            Tipo = request.Tipo,
+            DeviceId = request.DeviceId,
+            TokenHash = tokenHash,
+            EstadoLicencia = "Activa",
+            FechaExpiracionLicencia = DateTimeOffset.UtcNow.AddYears(1),
+            UltimoHeartbeat = DateTimeOffset.UtcNow
+        };
+
+        _db.PuntosLectura.Add(puntoLectura);
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            mensaje = "Kiosko dado de alta directamente.",
+            puntoLecturaId = puntoLectura.PuntoLecturaId,
+            nombre = puntoLectura.Nombre,
+            tipo = puntoLectura.Tipo,
+            tokenPuntoLectura = tokenPuntoLectura, // ⚠️ Solo se muestra una vez
+            advertencia = "Guarda este token en lugar seguro. No se volverá a mostrar."
+        });
+    }
 }

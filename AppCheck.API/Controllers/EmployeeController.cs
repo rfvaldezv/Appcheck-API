@@ -115,4 +115,79 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
 
         return Ok(empleados);
     }
+
+    // =====================================================
+    // 3. EDITAR EMPLEADO (protegido con JWT)
+    // =====================================================
+    public class EditarEmpleadoRequest
+    {
+        public string NombreCompleto { get; set; } = string.Empty;
+        public string PinRespaldo { get; set; } = string.Empty;
+        public string MetodoLecturaPreferido { get; set; } = "Mix";
+        public string Estado { get; set; } = "Activo"; // Activo / Inactivo
+    }
+
+    [HttpPut("{empleadoId}")]
+    [Authorize]
+    public async Task<IActionResult> EditarEmpleado(Guid empleadoId, [FromBody] EditarEmpleadoRequest request)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        var empleado = await _db.Empleados
+            .FirstOrDefaultAsync(e => e.EmpleadoId == empleadoId && e.CuentaId == cuentaId);
+
+        if (empleado == null)
+            return NotFound(new { mensaje = "Empleado no encontrado en tu cuenta." });
+
+        empleado.NombreCompleto = request.NombreCompleto;
+        empleado.PinRespaldo = request.PinRespaldo;
+        empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
+        empleado.Estado = request.Estado;
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new { mensaje = "Empleado actualizado correctamente.", empleadoId });
+    }
+
+    // =====================================================
+    // 4. ELIMINAR EMPLEADO (protegido con JWT)
+    // =====================================================
+    [HttpDelete("{empleadoId}")]
+    [Authorize]
+    public async Task<IActionResult> EliminarEmpleado(Guid empleadoId)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        var empleado = await _db.Empleados
+            .FirstOrDefaultAsync(e => e.EmpleadoId == empleadoId && e.CuentaId == cuentaId);
+
+        if (empleado == null)
+            return NotFound(new { mensaje = "Empleado no encontrado en tu cuenta." });
+
+        // Verificar si tiene checadas registradas
+        var tieneChecadas = await _db.RegistrosJornada
+            .AnyAsync(r => r.EmpleadoId == empleadoId);
+
+        if (tieneChecadas)
+            return BadRequest(new { mensaje = "No se puede eliminar el empleado porque tiene checadas registradas. Usa 'Inactivar' en su lugar." });
+
+        // Eliminar acuerdos firmados asociados
+        var acuerdos = await _db.AcuerdosFirmados
+            .Where(a => a.EmpleadoId == empleadoId)
+            .ToListAsync();
+        _db.AcuerdosFirmados.RemoveRange(acuerdos);
+
+        _db.Empleados.Remove(empleado);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { mensaje = "Empleado eliminado correctamente." });
+    }
 }

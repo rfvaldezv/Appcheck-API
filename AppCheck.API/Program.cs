@@ -39,12 +39,22 @@ builder.Services.AddSingleton<JwtService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 4. Swagger con seguridad JWT (esto agrega el candado)
+// 4. Configurar CORS para Flutter Web (desarrollo)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
+// 5. Swagger con seguridad JWT
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "AppCheck API", Version = "v1" });
 
-    // Definir el esquema de seguridad Bearer
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -52,11 +62,9 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Ingresa el token JWT. Ejemplo: 'eyJhbGci...' (sin la palabra 'Bearer', Swagger la agrega automáticamente)"
+        Description = "Ingresa el token JWT. Ejemplo: 'eyJhbGci...'"
     });
 
-    // Aplicar el esquema globalmente
-    // Aplicar el esquema globalmente (sintaxis .NET 10 + Swashbuckle v10)
     options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
         [new OpenApiSecuritySchemeReference("Bearer", document)] = []
@@ -65,19 +73,22 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-// 5. Pipeline HTTP
+// 6. Pipeline HTTP
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
+// Habilitar CORS (debe ir ANTES de Authentication y Authorization)
+app.UseCors("AllowAll");
+
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
-// 6. Endpoint de health
+// 7. Endpoint de health
 app.MapGet("/api/health", async (AppCheckDbContext db) =>
 {
     try

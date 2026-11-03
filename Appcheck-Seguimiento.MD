@@ -298,3 +298,25 @@ SELECT COUNT(\*) FROM AppcheckAPI.dbo.Cuentas; -- Debe ser >= 1
 
 
 
+### Sesión 3 (02/11/2026) - Hito: Ecosistema Funcional
+- [x] **Backend:** Completado el ciclo legal (JWT, alta de empleados, checadas con hash, activación de kioskos).
+- [x] **AppCheck_Admin (Flutter Web):**
+  - Dashboard con sidebar (Resumen, Kioskos, Empleados, Reportes).
+  - CRUD completo de Kioskos (Alta directa, generar código, editar, revocar, eliminar).
+  - CRUD completo de Empleados (Alta con acuse legal, editar, eliminar).
+  - Login con funcionalidad "ojito" para mostrar/ocultar contraseña.
+- [x] **AppCheck_Kiosko (Flutter Android):**
+  - Pantalla de activación con código de 8 caracteres.
+  - Almacenamiento seguro del token con `flutter_secure_storage`.
+  - Navegación a pantalla de escáner (pendiente integración real de cámara).
+- [x] **Base de Datos:** Migraciones aplicadas, usuarios semilla creados, kioskos y empleados de prueba funcionando.
+- [x] **GitHub:** Backend y Admin resguardados en repositorios independientes.
+
+**Siguientes pasos:**
+1. **Módulo de Facturación y Comisiones** (backend y frontend).
+2. **Dashboard de Reportes STPS** (descarga de PDF consolidado).
+3. **AppCheck_Kiosko:** Integración real de la cámara (`mobile_scanner`) y modo kiosco.
+4. **AppCheck_Employee (BYOD):** App móvil para checadas con GPS y selfie.
+5. **QR Dinámico (TOTP):** Implementación antifraude.
+6. **Reconocimiento Facial:** Integración con paquete de Flutter.
+7. **Despliegue a VPS:** Configuración de producción con variables de entorno.
