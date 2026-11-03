@@ -39,6 +39,7 @@ builder.Services.AddAuthentication(options =>
 
 // 3. Registrar servicios
 builder.Services.AddSingleton<JwtService>();
+builder.Services.AddSingleton<FacialRecognitionService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 

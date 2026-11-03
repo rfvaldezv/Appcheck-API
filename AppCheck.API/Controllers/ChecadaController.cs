@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using AppCheck.Data;
 using AppCheck.Data.Entities;
+using AppCheck.API.Services;
 
 namespace AppCheck.API.Controllers;
 
@@ -13,10 +14,12 @@ namespace AppCheck.API.Controllers;
 public class ChecadaController : ControllerBase
 {
     private readonly AppCheckDbContext _db;
+    private readonly FacialRecognitionService _facialService;
 
-    public ChecadaController(AppCheckDbContext db)
+    public ChecadaController(AppCheckDbContext db, FacialRecognitionService facialService)
     {
         _db = db;
+        _facialService = facialService;
     }
 
     // DTO para la checada
@@ -26,6 +29,7 @@ public class ChecadaController : ControllerBase
         public string TokenPuntoLectura { get; set; } = string.Empty;
         public string TipoChecada { get; set; } = "Entrada"; // Entrada / Salida
         public string MetodoUsado { get; set; } = "QR"; // QR / Facial
+        public string? FotoBase64 { get; set; }
         public decimal? Latitud { get; set; }
         public decimal? Longitud { get; set; }
         public bool EsOffline { get; set; } = false;
@@ -54,6 +58,24 @@ public class ChecadaController : ControllerBase
 
         if (empleado.Estado != "Activo")
             return BadRequest(new { mensaje = "El empleado está inactivo. Contacta al administrador." });
+
+        // 👈 VALIDACIÓN FACIAL
+        if (request.MetodoUsado == "Facial")
+        {
+            if (string.IsNullOrEmpty(request.FotoBase64))
+                return BadRequest(new { mensaje = "Se requiere la foto para la validación facial." });
+
+            if (string.IsNullOrEmpty(empleado.FaceTemplateHash))
+                return BadRequest(new { mensaje = "El empleado no tiene un rostro registrado en el sistema." });
+
+            var similitud = _facialService.CompararRostros(empleado.FaceTemplateHash, request.FotoBase64);
+
+            // Si la similitud es menor al 75%, rechazamos la checada
+            if (similitud < 75)
+            {
+                return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}%. Intenta de nuevo." });
+            }
+        }
 
         // 3. Determinar si es entrada o salida automáticamente
         var hoy = DateTimeOffset.UtcNow.Date;
