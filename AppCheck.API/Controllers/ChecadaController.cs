@@ -163,4 +163,59 @@ public class ChecadaController : ControllerBase
             registros
         });
     }
+
+    // =====================================================
+    // 3. REPORTE DE JORNADA POR RANGO DE FECHAS (protegido)
+    // =====================================================
+    [HttpGet("reporte")]
+    [Authorize]
+    public async Task<IActionResult> ReporteJornada(
+        [FromQuery] DateTime? fechaInicio,
+        [FromQuery] DateTime? fechaFin,
+        [FromQuery] Guid? empleadoId)
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        // Si no se especifican fechas, usar el mes actual
+        var inicio = fechaInicio ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        var fin = fechaFin ?? DateTime.UtcNow.Date.AddDays(1);
+
+        // Base query: registros de los empleados de la cuenta
+        var query = _db.RegistrosJornada
+            .Include(r => r.Empleado)
+            .Include(r => r.PuntoLectura)
+            .Where(r => r.Empleado.CuentaId == cuentaId)
+            .Where(r => r.TimestampServidor >= inicio && r.TimestampServidor < fin);
+
+        if (empleadoId.HasValue)
+            query = query.Where(r => r.EmpleadoId == empleadoId.Value);
+
+        var registros = await query
+            .OrderBy(r => r.Empleado.NombreCompleto)
+            .ThenBy(r => r.TimestampServidor)
+            .Select(r => new
+            {
+                r.RegistroId,
+                Empleado = r.Empleado.NombreCompleto,
+                NumeroEmpleado = r.Empleado.NumeroEmpleado,
+                r.TipoChecada,
+                r.TimestampServidor,
+                r.MetodoUsado,
+                r.HashRegistro,
+                PuntoLectura = r.PuntoLectura.Nombre
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            periodoInicio = inicio,
+            periodoFin = fin,
+            totalRegistros = registros.Count,
+            registros
+        });
+    }
 }

@@ -15,6 +15,11 @@ public class AppCheckDbContext : DbContext
     public DbSet<AcuerdoFirmado> AcuerdosFirmados { get; set; }
     public DbSet<CodigoActivacion> CodigosActivacion { get; set; }
     public DbSet<BitacoraAuditoria> BitacoraAuditoria { get; set; }
+    public DbSet<Plan> Planes { get; set; }
+    public DbSet<Suscripcion> Suscripciones { get; set; }
+    public DbSet<Factura> Facturas { get; set; }
+    public DbSet<ConfiguracionComision> ConfiguracionesComision { get; set; }
+    public DbSet<Liquidacion> Liquidaciones { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -112,6 +117,50 @@ public class AppCheckDbContext : DbContext
         {
             entity.HasKey(e => e.LogId);
             entity.Property(e => e.Accion).IsRequired().HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<Plan>(entity =>
+        {
+            entity.HasKey(e => e.PlanId);
+            entity.Property(e => e.PrecioBase).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<Suscripcion>(entity =>
+        {
+            entity.HasKey(e => e.SuscripcionId);
+            entity.HasOne(e => e.Cuenta).WithMany().HasForeignKey(e => e.CuentaId);
+            entity.HasOne(e => e.Plan).WithMany(p => p.Suscripciones).HasForeignKey(e => e.PlanId);
+        });
+
+        modelBuilder.Entity<Factura>(entity =>
+        {
+            entity.HasKey(e => e.FacturaId);
+            entity.Property(e => e.Subtotal).HasPrecision(18, 2);
+            entity.Property(e => e.IVA).HasPrecision(18, 2);
+            entity.Property(e => e.Total).HasPrecision(18, 2);
+            entity.HasOne(e => e.Cuenta).WithMany().HasForeignKey(e => e.CuentaId);
+            entity.HasOne(e => e.Suscripcion).WithMany().HasForeignKey(e => e.SuscripcionId);
+        });
+
+        modelBuilder.Entity<ConfiguracionComision>(entity =>
+        {
+            entity.HasKey(e => e.ConfiguracionId);
+            entity.Property(e => e.SueldoBaseMensual).HasPrecision(18, 2);
+            entity.Property(e => e.PorcentajeComisionRecurrente).HasPrecision(5, 4);
+            entity.Property(e => e.BonoPorNuevoCliente).HasPrecision(18, 2);
+            entity.Property(e => e.BonoPorMeta).HasPrecision(18, 2);
+            entity.HasOne(e => e.Vendedor).WithMany().HasForeignKey(e => e.VendedorId);
+        });
+
+        modelBuilder.Entity<Liquidacion>(entity =>
+        {
+            entity.HasKey(e => e.LiquidacionId);
+            entity.Property(e => e.MRRCobrado).HasPrecision(18, 2);
+            entity.Property(e => e.ComisionRecurrente).HasPrecision(18, 2);
+            entity.Property(e => e.Bonos).HasPrecision(18, 2);
+            entity.Property(e => e.SueldoBase).HasPrecision(18, 2);
+            entity.Property(e => e.TotalAPagar).HasPrecision(18, 2);
+            entity.HasOne(e => e.Vendedor).WithMany().HasForeignKey(e => e.VendedorId);
         });
     }
 }

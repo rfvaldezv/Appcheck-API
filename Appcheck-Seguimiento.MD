@@ -320,3 +320,20 @@ SELECT COUNT(\*) FROM AppcheckAPI.dbo.Cuentas; -- Debe ser >= 1
 5. **QR Dinámico (TOTP):** Implementación antifraude.
 6. **Reconocimiento Facial:** Integración con paquete de Flutter.
 7. **Despliegue a VPS:** Configuración de producción con variables de entorno.
+
+
+### Sesión 4 (02/11/2026) - Módulo de Facturación y Comisiones
+- [x] **Backend:** Tablas `Planes`, `Suscripciones`, `Facturas`, `ConfiguracionesComision`, `Liquidaciones` creadas.
+- [x] **Backend:** Endpoints de planes, suscripciones, facturas y comisiones funcionando.
+- [x] **Frontend Admin:**
+  - Vista de "Mi Suscripción" conectada (muestra plan PYME Básico).
+  - Vista de "Facturas" con generación mensual y acciones (Marcar como pagada).
+- [x] **Datos semilla:** 3 planes (Básico, Plus, Corporativo) insertados.
+- [x] **Pruebas exitosas:** Asignación de plan, generación de factura de noviembre ($346.84 con IVA), listado de facturas.
+
+**Siguientes pasos:**
+1. Vista de Comisiones (para rol Vendedor).
+2. Cámara real en AppCheck_Kiosko (Flutter).
+3. AppCheck_Employee (BYOD) con GPS y selfie.
+4. QR Dinámico (TOTP) antifraude.
+5. Despliegue a VPS.
