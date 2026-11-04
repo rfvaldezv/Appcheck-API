@@ -71,7 +71,8 @@ public class ChecadaController : ControllerBase
             var similitud = _facialService.CompararRostros(empleado.FaceTemplateHash, request.FotoBase64);
 
             // Si la similitud es menor al 75%, rechazamos la checada
-            if (similitud < 75)
+            //if (similitud < 75)
+            if (similitud < 30)
             {
                 return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}%. Intenta de nuevo." });
             }

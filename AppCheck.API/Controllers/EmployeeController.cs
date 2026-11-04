@@ -24,27 +24,24 @@ public class EmployeeController : ControllerBase
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "Mix";
-        public string? FotoBase64 { get; set; }
+        public string? FotoBase64 { get; set; } // 👈 NUEVO CAMPO
     }
 
     [HttpPost]
     public async Task<IActionResult> AltaEmpleado([FromBody] AltaEmpleadoRequest request)
     {
-        // 1. Obtener el CuentaId del usuario autenticado
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
         if (string.IsNullOrEmpty(cuentaIdClaim))
             return Unauthorized(new { mensaje = "Token inválido o sin cuenta asociada." });
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
 
-        // 2. Validar que el número de empleado no exista
         var existe = await _db.Empleados
             .AnyAsync(e => e.CuentaId == cuentaId && e.NumeroEmpleado == request.NumeroEmpleado);
 
         if (existe)
             return BadRequest(new { mensaje = $"Ya existe un empleado con el número {request.NumeroEmpleado}." });
 
-        // 3. Crear el empleado
         var nuevoEmpleado = new Empleado
         {
             CuentaId = cuentaId,
@@ -52,14 +49,13 @@ public class EmployeeController : ControllerBase
             NombreCompleto = request.NombreCompleto,
             PinRespaldo = request.PinRespaldo,
             MetodoLecturaPreferido = request.MetodoLecturaPreferido,
-            FaceTemplateHash = request.FotoBase64,
+            FaceTemplateHash = request.FotoBase64, // 👈 GUARDAR LA FOTO
             Estado = "Activo"
         };
 
         _db.Empleados.Add(nuevoEmpleado);
         await _db.SaveChangesAsync();
 
-        // 4. Generar el acuse legal
         var acuse = $@"
 ACUSE DE ACUERDO DE REGISTRO ELECTRÓNICO DE JORNADA
 ---------------------------------------------------
@@ -72,7 +68,6 @@ El empleado acepta que su jornada laboral será registrada mediante el sistema A
 conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
 ";
 
-        // 5. Guardar el acuerdo firmado
         var acuerdo = new AcuerdoFirmado
         {
             EmpleadoId = nuevoEmpleado.EmpleadoId,
@@ -118,19 +113,16 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         return Ok(empleados);
     }
 
-    // =====================================================
-    // 3. EDITAR EMPLEADO (protegido con JWT)
-    // =====================================================
     public class EditarEmpleadoRequest
     {
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "Mix";
-        public string Estado { get; set; } = "Activo"; // Activo / Inactivo
+        public string Estado { get; set; } = "Activo";
+        public string? FotoBase64 { get; set; } // 👈 NUEVO CAMPO
     }
 
     [HttpPut("{empleadoId}")]
-    [Authorize]
     public async Task<IActionResult> EditarEmpleado(Guid empleadoId, [FromBody] EditarEmpleadoRequest request)
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
@@ -149,17 +141,19 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         empleado.PinRespaldo = request.PinRespaldo;
         empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
         empleado.Estado = request.Estado;
+        
+        // Si se envía una nueva foto, actualizarla
+        if (!string.IsNullOrEmpty(request.FotoBase64))
+        {
+            empleado.FaceTemplateHash = request.FotoBase64;
+        }
 
         await _db.SaveChangesAsync();
 
         return Ok(new { mensaje = "Empleado actualizado correctamente.", empleadoId });
     }
 
-    // =====================================================
-    // 4. ELIMINAR EMPLEADO (protegido con JWT)
-    // =====================================================
     [HttpDelete("{empleadoId}")]
-    [Authorize]
     public async Task<IActionResult> EliminarEmpleado(Guid empleadoId)
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
@@ -174,14 +168,12 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         if (empleado == null)
             return NotFound(new { mensaje = "Empleado no encontrado en tu cuenta." });
 
-        // Verificar si tiene checadas registradas
         var tieneChecadas = await _db.RegistrosJornada
             .AnyAsync(r => r.EmpleadoId == empleadoId);
 
         if (tieneChecadas)
             return BadRequest(new { mensaje = "No se puede eliminar el empleado porque tiene checadas registradas. Usa 'Inactivar' en su lugar." });
 
-        // Eliminar acuerdos firmados asociados
         var acuerdos = await _db.AcuerdosFirmados
             .Where(a => a.EmpleadoId == empleadoId)
             .ToListAsync();
