@@ -17,3 +17,5 @@ appsettings.json
 
 # VS Code
 .vscode/
+
+publish/

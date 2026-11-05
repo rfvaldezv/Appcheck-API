@@ -24,7 +24,7 @@ public class EmployeeController : ControllerBase
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "Mix";
-        public string? FotoBase64 { get; set; } // 👈 NUEVO CAMPO
+        public string? FotoBase64 { get; set; }
     }
 
     [HttpPost]
@@ -49,7 +49,7 @@ public class EmployeeController : ControllerBase
             NombreCompleto = request.NombreCompleto,
             PinRespaldo = request.PinRespaldo,
             MetodoLecturaPreferido = request.MetodoLecturaPreferido,
-            FaceTemplateHash = request.FotoBase64, // 👈 GUARDAR LA FOTO
+            FaceTemplateHash = request.FotoBase64,
             Estado = "Activo"
         };
 
@@ -98,19 +98,61 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
 
-        var empleados = await _db.Empleados
-            .Where(e => e.CuentaId == cuentaId)
+        var rol = User.FindFirst("Rol")?.Value;
+
+        IQueryable<Empleado> query = _db.Empleados.Include(e => e.Cuenta);
+
+        // Si es SuperAdmin, ve todos los empleados. Si no, solo los de su cuenta.
+        if (rol != "SuperAdmin")
+        {
+            query = query.Where(e => e.CuentaId == cuentaId);
+        }
+
+        var empleados = await query
             .Select(e => new
             {
                 e.EmpleadoId,
                 e.NumeroEmpleado,
                 e.NombreCompleto,
                 e.MetodoLecturaPreferido,
-                e.Estado
+                e.Estado,
+                Empresa = e.Cuenta.NombreComercial,
+                CuentaId = e.CuentaId,
+                // 👈 Nombre del vendedor (si la cuenta tiene uno asignado)
+                Vendedor = _db.Usuarios
+                    .Where(u => u.UsuarioId == e.Cuenta.VendedorId)
+                    .Select(u => u.Nombre)
+                    .FirstOrDefault()
             })
             .ToListAsync();
 
         return Ok(empleados);
+    }
+
+    // 👈 ENDPOINT DE METODO DE LECTURA (Corregido)
+    [HttpGet("metodo-lectura/{numeroEmpleado}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ObtenerMetodoLectura(string numeroEmpleado, [FromQuery] string tokenKiosko)
+    {
+        // El token que envía el Kiosko YA es el hash guardado en la BD
+        var puntoLectura = await _db.PuntosLectura
+            .FirstOrDefaultAsync(p => p.TokenHash == tokenKiosko && p.EstadoLicencia != "Suspendido");
+
+        if (puntoLectura == null)
+            return Unauthorized(new { mensaje = "Kiosko no autorizado." });
+
+        var empleado = await _db.Empleados
+            .FirstOrDefaultAsync(e => e.NumeroEmpleado == numeroEmpleado && e.CuentaId == puntoLectura.CuentaId);
+
+        if (empleado == null)
+            return NotFound(new { mensaje = "Empleado no encontrado." });
+
+        return Ok(new
+        {
+            numeroEmpleado = empleado.NumeroEmpleado,
+            nombre = empleado.NombreCompleto,
+            metodoLectura = empleado.MetodoLecturaPreferido
+        });
     }
 
     public class EditarEmpleadoRequest
@@ -119,7 +161,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "Mix";
         public string Estado { get; set; } = "Activo";
-        public string? FotoBase64 { get; set; } // 👈 NUEVO CAMPO
+        public string? FotoBase64 { get; set; }
     }
 
     [HttpPut("{empleadoId}")]
@@ -141,8 +183,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         empleado.PinRespaldo = request.PinRespaldo;
         empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
         empleado.Estado = request.Estado;
-        
-        // Si se envía una nueva foto, actualizarla
+
         if (!string.IsNullOrEmpty(request.FotoBase64))
         {
             empleado.FaceTemplateHash = request.FotoBase64;
@@ -172,7 +213,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
             .AnyAsync(r => r.EmpleadoId == empleadoId);
 
         if (tieneChecadas)
-            return BadRequest(new { mensaje = "No se puede eliminar el empleado porque tiene checadas registradas. Usa 'Inactivar' en su lugar." });
+            return BadRequest(new { mensaje = "No se puede eliminar el empleado porque tiene checadas registradas." });
 
         var acuerdos = await _db.AcuerdosFirmados
             .Where(a => a.EmpleadoId == empleadoId)
@@ -183,5 +224,43 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         await _db.SaveChangesAsync();
 
         return Ok(new { mensaje = "Empleado eliminado correctamente." });
+    }
+
+    [HttpGet("test-version")]
+    [AllowAnonymous]
+    public IActionResult TestVersion()
+    {
+        return Ok(new { 
+            mensaje = "¡El DLL está actualizado!", 
+            fecha = DateTimeOffset.UtcNow,
+            version = "2.0.0"
+        });
+    }
+
+    // =====================================================
+    // 13. VALIDAR PIN (público, para el Kiosko)
+    // =====================================================
+    public class ValidarPinRequest
+    {
+        public string NumeroEmpleado { get; set; } = string.Empty;
+        public string Pin { get; set; } = string.Empty;
+    }
+
+    [HttpPost("validar-pin")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ValidarPin([FromBody] ValidarPinRequest request)
+    {
+        var empleado = await _db.Empleados
+            .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado && e.PinRespaldo == request.Pin && e.Estado == "Activo");
+
+        if (empleado == null)
+            return Unauthorized(new { mensaje = "PIN incorrecto o empleado inactivo." });
+
+        return Ok(new
+        {
+            numeroEmpleado = empleado.NumeroEmpleado,
+            nombre = empleado.NombreCompleto,
+            metodoLectura = empleado.MetodoLecturaPreferido
+        });
     }
 }

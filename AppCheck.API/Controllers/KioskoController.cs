@@ -105,13 +105,9 @@ public class KioskoController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> ActivarKiosko([FromBody] ActivarKioskoRequest request)
     {
-        Console.WriteLine($"=====> ActivarKiosko llamado con código: {request.Codigo}");
-        
-        // 1. Normalizar el código (quitar guiones y espacios)
+        // 1. Normalizar el código
         var codigoPlano = request.Codigo.Replace("-", "").Replace(" ", "").ToUpper();
         var codigoHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(codigoPlano)));
-        
-        Console.WriteLine($"=====> Código hash: {codigoHash}");
 
         // 2. Buscar el código en la BD
         var codigoActivacion = await _db.CodigosActivacion
@@ -130,18 +126,56 @@ public class KioskoController : ControllerBase
             return BadRequest(new { mensaje = "El código ha expirado." });
         }
 
-        // 3. Verificar que el deviceId no esté ya activo en otro kiosko
+        // 3. Verificar si el DeviceId ya existe en la cuenta
         var deviceExistente = await _db.PuntosLectura
-            .FirstOrDefaultAsync(p => p.DeviceId == request.DeviceId && p.EstadoLicencia == "Activa");
+            .FirstOrDefaultAsync(p => p.DeviceId == request.DeviceId && p.CuentaId == codigoActivacion.CuentaId);
 
         if (deviceExistente != null)
-            return BadRequest(new { mensaje = "Este dispositivo ya está registrado como kiosko activo." });
+        {
+            // 👈 ACTUALIZAR EL KIOSKO EXISTENTE
+            deviceExistente.Nombre = string.IsNullOrEmpty(request.NombreKiosko) ? deviceExistente.Nombre : request.NombreKiosko;
+            deviceExistente.Tipo = request.Tipo;
+            deviceExistente.EstadoLicencia = "Activa";
+            deviceExistente.FechaExpiracionLicencia = DateTimeOffset.UtcNow.AddYears(1);
+            deviceExistente.UltimoHeartbeat = DateTimeOffset.UtcNow;
 
-        // 4. Generar el TokenPuntoLectura (UUID + hash)
+            // 👈 LIMPIEZA: Eliminar códigos de activación viejos para este kiosko
+            var codigosViejos = await _db.CodigosActivacion
+                .Where(c => c.PuntoLecturaId == deviceExistente.PuntoLecturaId && c.Estado == "Pendiente")
+                .ToListAsync();
+            
+            foreach (var codigo in codigosViejos)
+            {
+                codigo.Estado = "Expirado";
+            }
+
+            // Generar nuevo token
+            var nuevoToken = Guid.NewGuid().ToString("N");
+            var nuevoTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(nuevoToken)));
+            deviceExistente.TokenHash = nuevoTokenHash;
+
+            // Marcar el código como usado y vinculado a este kiosko
+            codigoActivacion.Estado = "Usado";
+            codigoActivacion.PuntoLecturaId = deviceExistente.PuntoLecturaId;
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new
+            {
+                mensaje = "Kiosko reactivado correctamente.",
+                puntoLecturaId = deviceExistente.PuntoLecturaId,
+                nombre = deviceExistente.Nombre,
+                tipo = deviceExistente.Tipo,
+                tokenPuntoLectura = nuevoToken,
+                fechaExpiracionLicencia = deviceExistente.FechaExpiracionLicencia,
+                advertencia = "Guarda este token en lugar seguro. No se volverá a mostrar."
+            });
+        }
+
+        // 4. Si el DeviceId no existe, crear un nuevo kiosko
         var tokenPuntoLectura = Guid.NewGuid().ToString("N");
         var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tokenPuntoLectura)));
 
-        // 5. Crear el Punto de Lectura
         var puntoLectura = new PuntoLectura
         {
             CuentaId = codigoActivacion.CuentaId,
@@ -156,13 +190,11 @@ public class KioskoController : ControllerBase
 
         _db.PuntosLectura.Add(puntoLectura);
 
-        // 6. Marcar el código como usado
         codigoActivacion.Estado = "Usado";
         codigoActivacion.PuntoLecturaId = puntoLectura.PuntoLecturaId;
 
         await _db.SaveChangesAsync();
 
-        // 7. Devolver el token en texto plano (solo esta vez)
         return Ok(new
         {
             mensaje = "Kiosko activado correctamente.",
@@ -454,5 +486,72 @@ public class KioskoController : ControllerBase
             expiraEn = nuevoCodigo.ExpiraEn,
             instrucciones = "El dispositivo debe ingresar este código en la pantalla de activación."
         });
+    }
+
+    // =====================================================
+    // 11. RECUPERAR TOKEN POR DEVICE ID (público)
+    // =====================================================
+    public class RecuperarTokenRequest
+    {
+        public string DeviceId { get; set; } = string.Empty;
+    }
+
+    [HttpPost("recuperar")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RecuperarToken([FromBody] RecuperarTokenRequest request)
+    {
+        // 1. Buscar un kiosko activo con ese DeviceId
+        var kiosko = await _db.PuntosLectura
+            .FirstOrDefaultAsync(p => p.DeviceId == request.DeviceId && p.EstadoLicencia == "Activa");
+
+        if (kiosko == null)
+            return NotFound(new { mensaje = "Kiosko no registrado o inactivo." });
+
+        // 2. Si el kiosko existe, generar un token nuevo (y actualizar el hash en la BD)
+        //    Esto es seguro porque el DeviceId es único y el kiosko está activo.
+        var nuevoToken = Guid.NewGuid().ToString("N");
+        var nuevoTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(nuevoToken)));
+        
+        kiosko.TokenHash = nuevoTokenHash;
+        kiosko.UltimoHeartbeat = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync();
+
+        // 3. Devolver el token nuevo
+        return Ok(new
+        {
+            mensaje = "Token recuperado correctamente.",
+            puntoLecturaId = kiosko.PuntoLecturaId,
+            nombre = kiosko.Nombre,
+            tipo = kiosko.Tipo,
+            tokenPuntoLectura = nuevoToken,
+            fechaExpiracionLicencia = kiosko.FechaExpiracionLicencia
+        });
+    }
+
+    // =====================================================
+    // 12. LIMPIAR KIOSKOS INACTIVOS (protegido)
+    // =====================================================
+    [HttpPost("limpiar-inactivos")]
+    [Authorize]
+    public async Task<IActionResult> LimpiarInactivos()
+    {
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+
+        // Eliminar kioskos que no tienen heartbeat en 30 días y no tienen checadas
+        var fechaLimite = DateTimeOffset.UtcNow.AddDays(-30);
+        var kioskosInactivos = await _db.PuntosLectura
+            .Where(p => p.CuentaId == cuentaId 
+                     && p.UltimoHeartbeat < fechaLimite
+                     && !_db.RegistrosJornada.Any(r => r.PuntoLecturaId == p.PuntoLecturaId))
+            .ToListAsync();
+
+        _db.PuntosLectura.RemoveRange(kioskosInactivos);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { mensaje = $"Se eliminaron {kioskosInactivos.Count} kioskos inactivos." });
     }
 }

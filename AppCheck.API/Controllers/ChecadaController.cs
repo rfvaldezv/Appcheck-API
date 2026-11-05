@@ -27,8 +27,8 @@ public class ChecadaController : ControllerBase
     {
         public string NumeroEmpleado { get; set; } = string.Empty;
         public string TokenPuntoLectura { get; set; } = string.Empty;
-        public string TipoChecada { get; set; } = "Entrada"; // Entrada / Salida
-        public string MetodoUsado { get; set; } = "QR"; // QR / Facial
+        public string TipoChecada { get; set; } = "Entrada";
+        public string MetodoUsado { get; set; } = "QR"; // QR, Facial, Mix, PIN, PIN+Facial
         public string? FotoBase64 { get; set; }
         public decimal? Latitud { get; set; }
         public decimal? Longitud { get; set; }
@@ -41,10 +41,9 @@ public class ChecadaController : ControllerBase
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
     {
         // 1. Validar que el Punto de Lectura exista y esté activo
-        //    El token se hashea con SHA-256 antes de comparar (igual que en KioskoController)
-        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.TokenPuntoLectura)));
+        //    El token se compara directamente contra el TokenHash (sin hashear)
         var puntoLectura = await _db.PuntosLectura
-            .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
+            .FirstOrDefaultAsync(p => p.TokenHash == request.TokenPuntoLectura && p.EstadoLicencia != "Suspendido");
 
         if (puntoLectura == null)
             return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
@@ -59,8 +58,8 @@ public class ChecadaController : ControllerBase
         if (empleado.Estado != "Activo")
             return BadRequest(new { mensaje = "El empleado está inactivo. Contacta al administrador." });
 
-        // 👈 VALIDACIÓN FACIAL
-        if (request.MetodoUsado == "Facial")
+        // 3. Validación facial (para métodos "Facial", "Mix" y "PIN+Facial")
+        if (request.MetodoUsado == "Rostro" || request.MetodoUsado == "QR+Rostro" || request.MetodoUsado == "PIN+Rostro")
         {
             if (string.IsNullOrEmpty(request.FotoBase64))
                 return BadRequest(new { mensaje = "Se requiere la foto para la validación facial." });
@@ -70,15 +69,14 @@ public class ChecadaController : ControllerBase
 
             var similitud = _facialService.CompararRostros(empleado.FaceTemplateHash, request.FotoBase64);
 
-            // Si la similitud es menor al 75%, rechazamos la checada
-            //if (similitud < 75)
+            // Umbral del 30% para el MVP
             if (similitud < 30)
             {
                 return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}%. Intenta de nuevo." });
             }
         }
 
-        // 3. Determinar si es entrada o salida automáticamente
+        // 4. Determinar si es entrada o salida automáticamente
         var hoy = DateTimeOffset.UtcNow.Date;
         var ultimaChecada = await _db.RegistrosJornada
             .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
@@ -93,12 +91,12 @@ public class ChecadaController : ControllerBase
         else
             tipoChecadaFinal = "Entrada"; // Si ya salió, vuelve a entrar (segundo turno)
 
-        // 4. Generar hash de inmutabilidad
+        // 5. Generar hash de inmutabilidad
         var timestampServidor = DateTimeOffset.UtcNow;
         var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|{puntoLectura.PuntoLecturaId}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
 
-        // 5. Guardar el registro
+        // 6. Guardar el registro
         var nuevoRegistro = new RegistroJornada
         {
             EmpleadoId = empleado.EmpleadoId,
@@ -115,12 +113,12 @@ public class ChecadaController : ControllerBase
 
         _db.RegistrosJornada.Add(nuevoRegistro);
 
-        // 6. Actualizar heartbeat del punto de lectura
+        // 7. Actualizar heartbeat del punto de lectura
         puntoLectura.UltimoHeartbeat = timestampServidor;
 
         await _db.SaveChangesAsync();
 
-        // 7. Mensaje de confirmación
+        // 8. Mensaje de confirmación
         var saludo = tipoChecadaFinal == "Entrada" ? "¡Buen día" : "¡Hasta luego";
         var mensaje = $"{saludo}, {empleado.NombreCompleto}! Tu {tipoChecadaFinal.ToLower()} ha sido registrada.";
 
@@ -182,61 +180,6 @@ public class ChecadaController : ControllerBase
         return Ok(new
         {
             empleado = new { empleado.EmpleadoId, empleado.NombreCompleto, empleado.NumeroEmpleado },
-            totalRegistros = registros.Count,
-            registros
-        });
-    }
-
-    // =====================================================
-    // 3. REPORTE DE JORNADA POR RANGO DE FECHAS (protegido)
-    // =====================================================
-    [HttpGet("reporte")]
-    [Authorize]
-    public async Task<IActionResult> ReporteJornada(
-        [FromQuery] DateTime? fechaInicio,
-        [FromQuery] DateTime? fechaFin,
-        [FromQuery] Guid? empleadoId)
-    {
-        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
-        if (string.IsNullOrEmpty(cuentaIdClaim))
-            return Unauthorized();
-
-        var cuentaId = Guid.Parse(cuentaIdClaim);
-
-        // Si no se especifican fechas, usar el mes actual
-        var inicio = fechaInicio ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-        var fin = fechaFin ?? DateTime.UtcNow.Date.AddDays(1);
-
-        // Base query: registros de los empleados de la cuenta
-        var query = _db.RegistrosJornada
-            .Include(r => r.Empleado)
-            .Include(r => r.PuntoLectura)
-            .Where(r => r.Empleado.CuentaId == cuentaId)
-            .Where(r => r.TimestampServidor >= inicio && r.TimestampServidor < fin);
-
-        if (empleadoId.HasValue)
-            query = query.Where(r => r.EmpleadoId == empleadoId.Value);
-
-        var registros = await query
-            .OrderBy(r => r.Empleado.NombreCompleto)
-            .ThenBy(r => r.TimestampServidor)
-            .Select(r => new
-            {
-                r.RegistroId,
-                Empleado = r.Empleado.NombreCompleto,
-                NumeroEmpleado = r.Empleado.NumeroEmpleado,
-                r.TipoChecada,
-                r.TimestampServidor,
-                r.MetodoUsado,
-                r.HashRegistro,
-                PuntoLectura = r.PuntoLectura.Nombre
-            })
-            .ToListAsync();
-
-        return Ok(new
-        {
-            periodoInicio = inicio,
-            periodoFin = fin,
             totalRegistros = registros.Count,
             registros
         });
