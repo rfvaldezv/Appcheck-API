@@ -19,3 +19,8 @@ appsettings.json
 .vscode/
 
 publish/
+
+# Archivos de producción (no van a GitHub)
+publish/
+publish_produccion.zip
+*.zip
