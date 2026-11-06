@@ -245,3 +245,64 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+## 🏆 HITO — MVP End-to-End Validado en Producción (06/Nov/2026)
+
+**Estado:** 🟢 Backend 100% funcional. Listo para instalar APK en celular.
+
+### ✅ Validación end-to-end (9/9 pasos)
+
+| # | Prueba | Resultado |
+|---|--------|-----------|
+| 1 | Health check | ✅ 200 — BD conectada |
+| 2 | Login SuperAdmin | ✅ 200 — JWT válido |
+| 3 | Crear empleado con foto | ✅ 200 — `tieneRostro: true` |
+| 4 | Embedding facial | ✅ 200 — 512D, norma 1.0, 607ms |
+| 5 | Compare misma persona | ✅ 74-78% |
+| 6 | Compare distintas personas | ✅ 49% |
+| 7 | Checada con kiosko real | ✅ **200 OK** — 1419ms |
+| 8 | Prueba negativa (foto incorrecta) | ✅ **401 Unauthorized** |
+| 9 | Alternancia Entrada/Salida | ✅ Funcionando |
+
+### 🐛 Bugs corregidos en esta sesión
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `'PIN+Facial'` no canónico | → `'PIN+Rostro'` en `pin_screen.dart` |
+| 2 | Default `'Mix'` inválido | → `'Rostro'` en `facial_screen.dart` |
+| 3 | Timeout 60s insuficiente | → 120s en `api_service.dart` (Admin) |
+| 4 | Sin validación de métodos | Lista canónica en `EmployeeController` |
+| 5 | **Token del kiosko no hasheado** | **SHA-256 en `ChecadaController`** |
+
+### 🖥️ Infraestructura en producción
+
+- **API:** `https://api.appcheck.com.mx`
+- **Ruta VPS:** `C:\inetpub\wwwroot\appcheck_api\`
+- **BD:** SQL Server Express (`AppcheckAPI`)
+- **Backup pre-reset:** `C:\Backups\AppcheckAPI_antes_reset_20261106.bak`
+- **Modelos ONNX:** 157 MB (excluidos de Git, viven en el VPS)
+
+### 📊 Datos de prueba en producción
+
+| Dato | Valor |
+|------|-------|
+| Empleado prueba | `TEST001` — Empleado Prueba (PIN+Rostro) |
+| Kiosko prueba | "Kiosko de Prueba" (token `TOKEN_PRUEBA_1234567890`) |
+| Kiosko físico | "Celular Fisico" (device `S2RUBS32.51-15-3-19`) |
+| Checadas registradas | 2+ (Entrada + Salida + Entrada) |
+
+### 🎯 Pendientes para cerrar el MVP
+
+- [ ] **Instalar APK en celular físico** (WhatsApp → instalar)
+- [ ] **Verificar que recupera token automáticamente** (`/api/Kiosko/recuperar`)
+- [ ] **Probar checada con cámara real** del celular
+- [ ] **Verificar en BD** que se registró la checada desde celular
+
+### 🗺️ Roadmap post-MVP
+
+- [ ] **Admin Web deploy** (si no está en producción)
+- [ ] **Anti-fraude:** liveness, device binding, geofence
+- [ ] **Registrar más empleados** (los 0 actuales)
+- [ ] **Migrar a ArcFace/InsightFace** (opcional, si se necesita mejor precisión)
+
+---
+
