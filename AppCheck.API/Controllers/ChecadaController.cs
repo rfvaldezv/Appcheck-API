@@ -40,8 +40,10 @@ public class ChecadaController : ControllerBase
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
     {
         // 1. Validar Punto de Lectura
+        // 🛡️ El TokenHash en BD es SHA-256 del token. Hay que hashear el recibido.
+        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.TokenPuntoLectura)));
         var puntoLectura = await _db.PuntosLectura
-            .FirstOrDefaultAsync(p => p.TokenHash == request.TokenPuntoLectura && p.EstadoLicencia != "Suspendido");
+            .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
 
         if (puntoLectura == null)
             return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
