@@ -192,3 +192,56 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 
 
+## 🚀 HITO — Deploy a Producción + End-to-End Validado (06/Nov/2026)
+
+**Estado:** 🟢 MVP funcionando en `https://api.appcheck.com.mx`
+
+### ✅ Validación end-to-end en producción
+
+| Prueba | Endpoint | Resultado |
+|--------|----------|-----------|
+| Health check | `GET /api/health` | ✅ 200 — BD conectada |
+| Login SuperAdmin | `POST /api/Auth/login` | ✅ 200 — JWT válido |
+| Crear empleado con foto | `POST /api/Employee` | ✅ 200 — `tieneRostro: true` |
+| Embedding facial | `POST /api/facial/embedding` | ✅ 200 — 512D, norma 1.0, 607ms |
+| Compare facial (misma persona) | `POST /api/facial/compare` | ✅ 74-78% |
+| Compare facial (distintas) | `POST /api/facial/compare` | ✅ 49% |
+| **Checada exitosa** | `POST /api/Checada` (foto correcta) | ✅ **200 OK** — 1419ms |
+| **Checada rechazada** | `POST /api/Checada` (foto incorrecta) | ✅ **401 Unauthorized** |
+
+### 📊 Datos de prueba creados
+- **Empleado:** `TEST001` — Empleado Prueba (PIN+Rostro, con rostro)
+- **Kiosko:** "Kiosko de Prueba" (token `TOKEN_PRUEBA_1234567890`)
+- **Checada:** 1 registro de Entrada en `RegistrosJornada`
+
+### 🎯 Resultados en producción (idénticos a local)
+| Par | Local | Producción |
+|-----|-------|------------|
+| rfvv ↔ vvrf | 77.98% | 77.98% ✅ |
+| frvv ↔ vvfr | 74.14% | 74.14% ✅ |
+| rfvv ↔ frvv | 76.37% | 76.37% ✅ |
+| rfvv ↔ iav | 49.13% | 49.13% ✅ |
+
+### 🖥️ Infraestructura
+- **API:** `https://api.appcheck.com.mx` (IIS + .NET 10 self-contained)
+- **Ruta VPS:** `C:\inetpub\wwwroot\appcheck_api\`
+- **BD:** SQL Server Express (`AppcheckAPI`)
+- **Deploy:** RDP + ZIP de ~300 MB (con modelos ONNX)
+- **Backup pre-reset:** `C:\Backups\AppcheckAPI_antes_reset_20261106.bak`
+
+### 🐛 Bugs corregidos en esta sesión
+1. **Nombres canónicos:** `'PIN+Facial'` → `'PIN+Rostro'` (Kiosko)
+2. **Default de método:** `'Mix'` → `'Rostro'` (FacialScreen)
+3. **Timeout en Admin:** 60s → 120s (alta/edición con foto)
+4. **Validación de métodos:** lista canónica en `EmployeeController`
+5. **Si foto no detecta rostro:** `400 Bad Request` (antes guardaba null)
+
+### 🔧 Pendientes después de este hito
+- [ ] **Build APK del Kiosko** (para probar desde celular real)
+- [ ] **Deploy del Admin Web** (si aún no está en producción)
+- [ ] **Registrar más empleados** (los 0 actuales)
+- [ ] **Prueba con las 4 fotos de la misma persona** (todas deben pasar)
+- [ ] **Anti-fraude:** liveness, device binding, geofence (Sprint B)
+
+---
+

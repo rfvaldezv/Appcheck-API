@@ -21,4 +21,19 @@ appsettings.json
 # Archivos de producción (no van a GitHub)
 publish/
 publish_produccion.zip
+publish_sc/
 *.zip
+
+# ============================================
+# APPCHECK — Reglas específicas
+# ============================================
+
+# Modelos ONNX (pesan >100 MB, van al VPS por separado)
+AppCheck.API/Models/
+AppCheck.API/Models/*.onnx
+AppCheck.API/Models/*.rar
+Models/
+*.onnx
+
+# Archivos temporales de diagnóstico
+InspectFaceOnnx.cs
