@@ -22,7 +22,6 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.MapInboundClaims = false; // 👈 Evita que .NET renombre los claims
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -31,9 +30,7 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         ValidIssuer = builder.Configuration["Jwt:Issuer"],
         ValidAudience = builder.Configuration["Jwt:Audience"],
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
-        NameClaimType = "sub",           // 👈 Le dice a .NET que el claim "sub" es el nombre
-        RoleClaimType = "Rol"            // 👈 Le dice a .NET que el claim "Rol" es el rol
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
     };
 });
 
@@ -43,7 +40,7 @@ builder.Services.AddSingleton<FacialRecognitionService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 4. Configurar CORS
+// 4. Configurar CORS (Permitir todo para el MVP)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -84,21 +81,30 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Habilitar CORS (debe ir ANTES de Authentication y Authorization)
+// 👈 1. CORS PRIMERO (para que las cabeceras se añadan a todas las respuestas)
 app.UseCors("AllowAll");
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHttpsRedirection();
-}
+// 👈 2. Middleware para capturar excepciones y forzar CORS en errores 500
 app.Use(async (context, next) =>
 {
-    var authHeader = context.Request.Headers["Authorization"].ToString();
-    Console.WriteLine($"=====> Authorization Header: {(string.IsNullOrEmpty(authHeader) ? "VACÍO" : authHeader.Substring(0, Math.Min(60, authHeader.Length)) + "...")}");
-    await next();
+    try
+    {
+        await next();
+    }
+    catch (Exception ex)
+    {
+        // Forzar las cabeceras CORS en la respuesta de error
+        context.Response.Headers["Access-Control-Allow-Origin"] = "*";
+        context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+        context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new { mensaje = $"Error interno: {ex.Message}" });
+    }
 });
-app.UseAuthentication();  // 👈 Validación del token JWT
-app.UseAuthorization();   // 👈 Verificación de roles
+
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 // 7. Endpoint de health
