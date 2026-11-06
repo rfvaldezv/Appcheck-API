@@ -306,3 +306,98 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+
+## 🏆 HITO FINAL — MVP 100% Validado en Celular Real (06/Nov/2026)
+
+**Estado:** 🟢 MVP completo y funcional en producción. Listo para piloto.
+
+### ✅ Validación final (última checada desde celular físico)
+
+
+**La checada se registró desde el celular físico "Celular Fisico" (deviceId S2RUBS32.51-15-3-19).**
+
+### ✅ Historial completo del día (4 checadas)
+
+| # | Timestamp (UTC) | Tipo | Método |
+|---|-----------------|------|--------|
+| 4 | 20:11:34 | Salida | PIN+Rostro (celular físico) |
+| 3 | 20:00:27 | Entrada | PIN+Rostro |
+| 2 | 19:44:24 | Salida | PIN+Rostro |
+| 1 | 19:23:55 | Entrada | PIN+Rostro |
+
+**Alternancia correcta: Entrada → Salida → Entrada → Salida** ✅
+
+### 🐛 Bug adicional corregido
+
+| Bug | Fix |
+|-----|-----|
+| `keyboardType: number` bloqueaba IDs alfanuméricos (`TEST001`, `AIM003`, etc.) | → `keyboardType: text` en `pin_screen.dart` línea 159 |
+
+### 🎯 Flujo completo validado (13 pasos)
+
+1. App arranca en celular físico
+2. Llama a `/api/Kiosko/recuperar` con `deviceId` registrado
+3. Backend genera token nuevo + actualiza hash
+4. App guarda token en `flutter_secure_storage`
+5. Va al scanner (sin pedir código)
+6. Toca "Usar PIN"
+7. Ingresa `TEST001` + PIN `1234`
+8. App valida PIN (`/api/Employee/validar-pin`)
+9. Abre `FacialScreen` con `metodoUsado = 'PIN+Rostro'`
+10. Cámara captura foto → comprime a 300x300 JPG
+11. Envía a `/api/Checada` con `fotoBase64`
+12. Backend: valida token → detecta rostro → genera embedding → compara (>70%) → registra
+13. App muestra "Salida exitosa" (pantalla amarilla)
+
+### 📊 Estado del ecosistema
+
+| Componente | Estado |
+|------------|--------|
+| **API** | ✅ `https://api.appcheck.com.mx` |
+| **BD** | ✅ SQL Express (`AppcheckAPI`) |
+| **Facial** | ✅ FaceONNX + ResNet-27 (600ms/foto) |
+| **Empleados** | ✅ TEST001 con rostro registrado |
+| **Kioskos** | ✅ 4 registrados (1 en uso en celular físico) |
+| **APK** | ✅ Instalado en celular físico |
+| **Checadas** | ✅ 4 registradas (alternancia correcta) |
+
+### 🗺️ Roadmap post-MVP
+
+#### Corto plazo (próxima sesión)
+- [ ] Registrar más empleados (reales)
+- [ ] Deploy del Admin Web (`admin.appcheck.com.mx`) si no está
+- [ ] Probar los 5 métodos de checada en celular real
+- [ ] Actualizar `PROJECT_STATUS.md` con cada método validado
+
+#### Mediano plazo (Sprint B — Anti-fraude)
+- [ ] **Liveness detection** (detectar foto impresa/video)
+- [ ] **Device binding** (un empleado = un dispositivo)
+- [ ] **Geofence** (validar ubicación para oficina)
+- [ ] **Regla "Rostro solo prohibido en remoto"** en `ChecadaController`
+
+#### Largo plazo (Sprint C — Escala)
+- [ ] Múltiples embeddings por empleado (3-5 fotos, promedio)
+- [ ] Migrar a ArcFace/InsightFace (si se necesita más precisión)
+- [ ] Modo offline con cola local
+- [ ] Panel admin con reportes y analytics
+
+### 🏆 Hitos del día (06/Nov/2026)
+
+1. ✅ Reconocimiento facial con IA real (FaceONNX)
+2. ✅ 16/16 pruebas de validación (misma persona 74-83%, distintas 48-54%)
+3. ✅ 5 bugs corregidos (detector, alineación, input name, dimensiones, métrica)
+4. ✅ Defensa en profundidad (validación de métodos canónicos)
+5. ✅ Deploy a producción (`api.appcheck.com.mx`)
+6. ✅ BD limpia + backup pre-reset
+7. ✅ Empleado TEST001 con rostro registrado
+8. ✅ Checada end-to-end desde PowerShell (1419ms)
+9. ✅ Prueba negativa (foto incorrecta → 401)
+10. ✅ Bug del token hasheado corregido y desplegado
+11. ✅ APK instalado en celular físico
+12. ✅ Bug del `keyboardType` corregido
+13. ✅ **Checada real desde celular físico (pantalla amarilla de éxito)**
+
+**MVP cerrado. El producto está listo para piloto real.** 🎯
+
+---
+
