@@ -401,3 +401,20 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+
+## 🏆 HITO FINAL — MVP 100% Funcional en Celular Real (06-07/Nov/2026)
+
+**Estado:** 🟢 **MVP COMPLETADO Y VALIDADO EN PRODUCCIÓN.**
+
+### ✅ Métodos validados end-to-end en celular físico real
+
+| Método | Probado | Notas |
+|--------|---------|-------|
+| **ID + Rostro** | ✅ | Ingresando número de empleado |
+| **QR + Rostro** | ✅ | Escaneando gafete (con lentes puestos) |
+| **QR** | ⏳ | Pendiente de probar |
+| **ID + PIN** | ⏳ | Pendiente de probar |
+| **Rostro solo** | ⏳ | Pendiente (requiere búsqueda 1-N) |
+
+### 📊 Checadas registradas en producción (5)
+
