@@ -15,14 +15,14 @@ public class EmployeeController : ControllerBase
     private readonly AppCheckDbContext _db;
     private readonly FacialRecognitionService _facialService;
 
-    // 🛡️ Lista canónica de métodos válidos (debe coincidir con ChecadaController)
+    // 🛡️ Lista canónica de métodos válidos (5 métodos)
     private static readonly string[] MetodosValidos = new[] 
     { 
-        "PIN", 
-        "QR", 
-        "PIN+Rostro", 
-        "QR+Rostro", 
-        "Rostro" 
+        "QR",           // QR solo (identifica)
+        "QR+Rostro",    // QR + rostro (doble factor)
+        "ID+PIN",       // ID + PIN (doble factor, sin cámara)
+        "ID+Rostro",    // ID + rostro (doble factor, natural)
+        "Rostro"        // Rostro solo (identifica por sí mismo)
     };
 
     public EmployeeController(AppCheckDbContext db, FacialRecognitionService facialService)
@@ -59,6 +59,22 @@ public class EmployeeController : ControllerBase
             });
         }
 
+        // 🛡️ Validar PIN obligatorio si el método lo requiere
+        if ((request.MetodoLecturaPreferido == "ID+PIN") && string.IsNullOrWhiteSpace(request.PinRespaldo))
+        {
+            return BadRequest(new { mensaje = "El método ID+PIN requiere un PIN." });
+        }
+
+        // 🛡️ Validar PIN único por cuenta (para evitar ambigüedad)
+        if (!string.IsNullOrWhiteSpace(request.PinRespaldo))
+        {
+            var pinExiste = await _db.Empleados
+                .AnyAsync(e => e.CuentaId == cuentaId && e.PinRespaldo == request.PinRespaldo);
+
+            if (pinExiste)
+                return BadRequest(new { mensaje = "El PIN ya está en uso por otro empleado. Elige uno diferente." });
+        }
+
         var existe = await _db.Empleados
             .AnyAsync(e => e.CuentaId == cuentaId && e.NumeroEmpleado == request.NumeroEmpleado);
 
@@ -80,6 +96,13 @@ public class EmployeeController : ControllerBase
             }
         }
 
+        // 🛡️ Validar que si el método requiere rostro, se haya enviado foto
+        var metodosConRostro = new[] { "QR+Rostro", "ID+Rostro", "Rostro" };
+        if (metodosConRostro.Contains(request.MetodoLecturaPreferido) && string.IsNullOrEmpty(faceEmbeddingStr))
+        {
+            return BadRequest(new { mensaje = $"El método {request.MetodoLecturaPreferido} requiere una foto para registrar el rostro." });
+        }
+
         var nuevoEmpleado = new Empleado
         {
             CuentaId = cuentaId,
@@ -87,7 +110,7 @@ public class EmployeeController : ControllerBase
             NombreCompleto = request.NombreCompleto,
             PinRespaldo = request.PinRespaldo,
             MetodoLecturaPreferido = request.MetodoLecturaPreferido,
-            FaceTemplateHash = faceEmbeddingStr, // 👈 Guardamos el embedding, no la foto
+            FaceTemplateHash = faceEmbeddingStr,
             Estado = "Activo"
         };
 
@@ -156,10 +179,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
                 e.Estado,
                 Empresa = e.Cuenta.NombreComercial,
                 CuentaId = e.CuentaId,
-                Vendedor = _db.Usuarios
-                    .Where(u => u.UsuarioId == e.Cuenta.VendedorId)
-                    .Select(u => u.Nombre)
-                    .FirstOrDefault()
+                TieneRostro = e.FaceTemplateHash != null
             })
             .ToListAsync();
 
@@ -171,8 +191,11 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
     [AllowAnonymous]
     public async Task<IActionResult> ObtenerMetodoLectura(string numeroEmpleado, [FromQuery] string tokenKiosko)
     {
+        var tokenHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(tokenKiosko)));
+        
         var puntoLectura = await _db.PuntosLectura
-            .FirstOrDefaultAsync(p => p.TokenHash == tokenKiosko && p.EstadoLicencia != "Suspendido");
+            .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
 
         if (puntoLectura == null)
             return Unauthorized(new { mensaje = "Kiosko no autorizado." });
@@ -191,7 +214,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         });
     }
 
-    // 👆 VALIDAR PIN (para el Kiosko)
+    // 👆 VALIDAR PIN (para el Kiosko) — Solo para método ID+PIN
     public class ValidarPinRequest
     {
         public string NumeroEmpleado { get; set; } = string.Empty;
@@ -203,10 +226,12 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
     public async Task<IActionResult> ValidarPin([FromBody] ValidarPinRequest request)
     {
         var empleado = await _db.Empleados
-            .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado && e.PinRespaldo == request.Pin && e.Estado == "Activo");
+            .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado 
+                                  && e.PinRespaldo == request.Pin 
+                                  && e.Estado == "Activo");
 
         if (empleado == null)
-            return Unauthorized(new { mensaje = "PIN incorrecto o empleado inactivo." });
+            return Unauthorized(new { mensaje = "ID o PIN incorrecto." });
 
         return Ok(new
         {
@@ -250,6 +275,18 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
             });
         }
 
+        // 🛡️ Validar PIN único por cuenta (excluyendo el empleado actual)
+        if (!string.IsNullOrWhiteSpace(request.PinRespaldo))
+        {
+            var pinExiste = await _db.Empleados
+                .AnyAsync(e => e.CuentaId == cuentaId 
+                            && e.PinRespaldo == request.PinRespaldo 
+                            && e.EmpleadoId != empleadoId);
+
+            if (pinExiste)
+                return BadRequest(new { mensaje = "El PIN ya está en uso por otro empleado. Elige uno diferente." });
+        }
+
         empleado.NombreCompleto = request.NombreCompleto;
         empleado.PinRespaldo = request.PinRespaldo;
         empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
@@ -271,9 +308,9 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
 
         await _db.SaveChangesAsync();
 
-        return Ok(new 
-        { 
-            mensaje = "Empleado actualizado correctamente.", 
+        return Ok(new
+        {
+            mensaje = "Empleado actualizado correctamente.",
             empleadoId,
             tieneRostro = !string.IsNullOrEmpty(empleado.FaceTemplateHash)
         });

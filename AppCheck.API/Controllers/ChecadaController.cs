@@ -27,8 +27,9 @@ public class ChecadaController : ControllerBase
         public string NumeroEmpleado { get; set; } = string.Empty;
         public string TokenPuntoLectura { get; set; } = string.Empty;
         public string TipoChecada { get; set; } = "Entrada";
-        public string MetodoUsado { get; set; } = "QR"; // QR, PIN, QR+Rostro, PIN+Rostro, Rostro
+        public string MetodoUsado { get; set; } = "QR";
         public string? FotoBase64 { get; set; }
+        public string? Pin { get; set; }              // ← NUEVO: para ID+PIN
         public decimal? Latitud { get; set; }
         public decimal? Longitud { get; set; }
         public bool EsOffline { get; set; } = false;
@@ -39,8 +40,7 @@ public class ChecadaController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
     {
-        // 1. Validar Punto de Lectura
-        // 🛡️ El TokenHash en BD es SHA-256 del token. Hay que hashear el recibido.
+        // 1. Validar Punto de Lectura (hasheando el token)
         var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.TokenPuntoLectura)));
         var puntoLectura = await _db.PuntosLectura
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
@@ -49,44 +49,116 @@ public class ChecadaController : ControllerBase
             return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
 
         // 2. Buscar empleado
-        var empleado = await _db.Empleados
-            .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado && e.CuentaId == puntoLectura.CuentaId);
+        Empleado? empleado = null;
 
-        if (empleado == null)
-            return NotFound(new { mensaje = $"Empleado {request.NumeroEmpleado} no encontrado en esta empresa." });
+        if (request.MetodoUsado == "Rostro" && string.IsNullOrEmpty(request.NumeroEmpleado))
+        {
+            // 🔍 BÚSQUEDA 1 a N: Rostro solo (sin ID)
+            if (string.IsNullOrEmpty(request.FotoBase64))
+                return BadRequest(new { mensaje = "Se requiere la foto para el método Rostro." });
+
+            var embeddingEnVivo = _facialService.GenerarEmbedding(request.FotoBase64);
+            if (embeddingEnVivo.Length == 0)
+                return BadRequest(new { mensaje = "No se detectó ningún rostro en la foto." });
+
+            // Buscar en todos los empleados de la cuenta con rostro registrado
+            var empleados = await _db.Empleados
+                .Where(e => e.CuentaId == puntoLectura.CuentaId
+                         && e.Estado == "Activo"
+                         && e.FaceTemplateHash != null)
+                .ToListAsync();
+
+            Empleado? mejorMatch = null;
+            double mejorSimilitud = 0;
+
+            foreach (var emp in empleados)
+            {
+                try
+                {
+                    var embeddingGuardado = emp.FaceTemplateHash!
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(float.Parse)
+                        .ToArray();
+                    var sim = _facialService.CompararRostros(embeddingGuardado, embeddingEnVivo);
+
+                    if (sim > mejorSimilitud)
+                    {
+                        mejorSimilitud = sim;
+                        mejorMatch = emp;
+                    }
+                }
+                catch { /* ignorar empleado con embedding corrupto */ }
+            }
+
+            // Umbral más alto para 1-N (75% en vez de 70%)
+            if (mejorMatch == null || mejorSimilitud < 75)
+            {
+                return Unauthorized(new 
+                { 
+                    mensaje = $"Rostro no coincide con ningún empleado. Mejor similitud: {mejorSimilitud:F2}% (mínimo 75% para Rostro solo)." 
+                });
+            }
+
+            empleado = mejorMatch;
+        }
+        else
+        {
+            // Búsqueda normal por NumeroEmpleado
+            if (string.IsNullOrEmpty(request.NumeroEmpleado))
+                return BadRequest(new { mensaje = "Se requiere el número de empleado." });
+
+            empleado = await _db.Empleados
+                .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado 
+                                      && e.CuentaId == puntoLectura.CuentaId);
+
+            if (empleado == null)
+                return NotFound(new { mensaje = $"Empleado {request.NumeroEmpleado} no encontrado en esta empresa." });
+        }
 
         if (empleado.Estado != "Activo")
             return BadRequest(new { mensaje = "El empleado está inactivo. Contacta al administrador." });
 
-        // 3. Validación facial con IA REAL (para métodos "Rostro", "QR+Rostro" y "PIN+Rostro")
-        if (request.MetodoUsado == "Rostro" || request.MetodoUsado == "QR+Rostro" || request.MetodoUsado == "PIN+Rostro")
+        // 3. Validar método según el tipo
+        if (request.MetodoUsado == "ID+PIN")
         {
+            // Validar PIN
+            if (string.IsNullOrEmpty(request.Pin))
+                return BadRequest(new { mensaje = "Se requiere el PIN para el método ID+PIN." });
+
+            if (empleado.PinRespaldo != request.Pin)
+                return Unauthorized(new { mensaje = "PIN incorrecto." });
+        }
+        else if (request.MetodoUsado == "ID+Rostro" || request.MetodoUsado == "QR+Rostro")
+        {
+            // Validar rostro
             if (string.IsNullOrEmpty(request.FotoBase64))
                 return BadRequest(new { mensaje = "Se requiere la foto para la validación facial." });
 
             if (string.IsNullOrEmpty(empleado.FaceTemplateHash))
                 return BadRequest(new { mensaje = "El empleado no tiene un rostro registrado en el sistema." });
 
-            // Generar embedding de la foto en vivo
             var embeddingEnVivo = _facialService.GenerarEmbedding(request.FotoBase64);
             if (embeddingEnVivo.Length == 0)
                 return BadRequest(new { mensaje = "No se detectó ningún rostro en la foto." });
 
-            // Convertir el embedding guardado (string) a float[]
             var embeddingGuardado = empleado.FaceTemplateHash
                 .Split(',', StringSplitOptions.RemoveEmptyEntries)
                 .Select(float.Parse)
                 .ToArray();
 
-            // Comparar embeddings
             var similitud = _facialService.CompararRostros(embeddingGuardado, embeddingEnVivo);
 
-            // Umbral para IA real (60% es un buen punto de partida)
             if (similitud < 70)
             {
-                return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}% (mínimo 70%). Intenta de nuevo." });
+                return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}% (mínimo 70%)." });
             }
         }
+        else if (request.MetodoUsado == "Rostro")
+        {
+            // Ya se validó arriba (búsqueda 1-N)
+            // Nada más que hacer
+        }
+        // QR: sin validación adicional (el QR ya lleva el ID)
 
         // 4. Determinar Entrada/Salida
         var hoy = DateTimeOffset.UtcNow.Date;
@@ -142,7 +214,6 @@ public class ChecadaController : ControllerBase
         });
     }
 
-    // GET: Historial de checadas (protegido por JWT)
     [HttpGet("historial/{empleadoId}")]
     [Authorize]
     public async Task<IActionResult> HistorialEmpleado(Guid empleadoId)
