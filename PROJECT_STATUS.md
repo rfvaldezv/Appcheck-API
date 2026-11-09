@@ -418,3 +418,81 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ### 📊 Checadas registradas en producción (5)
 
+
+## 🏆 HITO FINAL — GPS en APK + PWA, Ciclo Completo Cerrado (09/Nov/2026)
+
+**Estado:** 🟢 **MVP MULTIPLATAFORMA COMPLETO CON GPS.**
+
+### ✅ Validación end-to-end en producción
+
+| Origen | GPS | Checada |
+|--------|-----|---------|
+| **APK Android** (Kiosko) | ✅ 20.634066, -103.419420 | ✅ Registrada |
+| **PWA iPhone** (Safari) | ✅ 20.634245, -103.419400 | ✅ Registrada |
+| **PWA Android** (Chrome) | ✅ | ✅ Registrada |
+| **Chrome desktop** | ⚠️ (sin GPS en desktop) | ✅ Registrada |
+
+**5 checadas registradas hoy:**
+- 4 desde PWA (iPhone/Android)
+- 1 desde APK (Kiosko físico)
+- 2 con GPS capturado
+- 3 sin GPS (permiso denegado, pero checada OK)
+
+### 🎯 Lo que se logró
+
+- **Backend:** endpoint público `/api/Checada/empleado` + GPS en `/api/Checada`
+- **APK Kiosko:** captura GPS con timeout de 8s
+- **PWA Empleado:** captura GPS con timeout de 8s (iOS Safari bloquea requestPermission)
+- **BD:** `PuntoLecturaId` nullable, `Latitud`/`Longitud` opcionales
+- **Seguridad:** par `(NumeroEmpleado + PIN)` único global
+
+### 🐛 Bugs corregidos en esta sesión
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `AndroidManifest.xml` con permisos dentro de `<application>` | Movidos antes de `<application>` |
+| 2 | `StorageService.borrarToken` no existía en Kiosko | Agregado |
+| 3 | Warning `unnecessary_null_comparison` | Removido `deviceId != null` |
+| 4 | `PuntoLecturaId` no aceptaba NULL | `ALTER COLUMN ... NULL` en BD |
+| 5 | `RegistroJornada.PuntoLecturaId` no era nullable en C# | `Guid?` |
+
+### 🖥️ Infraestructura completa
+
+| Componente | URL |
+|------------|-----|
+| API | `https://api.appcheck.com.mx` |
+| PWA Empleado | `https://app.appcheck.com.mx` |
+| Admin Web | `https://admin.appcheck.com.mx` |
+| APK Kiosko | Distribución directa (WhatsApp) |
+
+### 📊 Repos sincronizados
+
+| Repo | Último commit |
+|------|---------------|
+| `Appcheck-API` | (pendiente push) |
+| `Appcheck-Kiosko` | (pendiente push) |
+| `Appcheck-Admin` | `f28f0d1` |
+| `Appcheck-App` | (primer commit) |
+
+### 🗺️ Roadmap post-MVP
+
+#### Corto plazo
+- [ ] Probar los 3 métodos faltantes en PWA (`QR`, `ID+PIN`, `Rostro`)
+- [ ] Verificar Admin Web en producción
+- [ ] Registrar empleados reales
+- [ ] Documentar instalación (APK + PWA)
+
+#### Mediano plazo (Sprint B — Anti-fraude)
+- [ ] Liveness detection
+- [ ] Device binding
+- [ ] Geofence (validar ubicación)
+- [ ] Regla "Rostro solo prohibido en remoto"
+
+#### Largo plazo (Sprint C — Escala)
+- [ ] Múltiples embeddings por empleado
+- [ ] Migrar a ArcFace/InsightFace
+- [ ] Reportes y analytics
+- [ ] Notificaciones push
+
+---
+
