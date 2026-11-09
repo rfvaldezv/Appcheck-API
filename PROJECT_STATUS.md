@@ -496,3 +496,51 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+
+## 🏆 HITO FINAL — 6 Métodos de Checada (09/Nov/2026)
+
+**Estado:** 🟢 **MVP COMPLETO con 6 métodos.**
+
+### ✅ Métodos soportados
+
+| # | Método | Kiosko (APK) | PWA |
+|---|--------|--------------|-----|
+| 1 | **QR** | ✅ | ✅ |
+| 2 | **QR + Rostro** | ✅ | ✅ |
+| 3 | **ID + PIN** | ✅ | ✅ |
+| 4 | **ID + Rostro** | ✅ | ✅ |
+| 5 | **Rostro** | ✅ | ✅ |
+| 6 | **Huella** | ✅ (local_auth) | ⚠️ Próximamente (WebAuthn) |
+
+### ✅ Validación end-to-end
+
+**APK (Kiosko):**
+- 6 métodos funcionando
+- Huella con `local_auth` (requiere huella registrada en el celular)
+- Backend valida `PuedeUsarHuella` por empleado
+
+**PWA (iPhone/Android):**
+- 5 métodos funcionando
+- Huella muestra "Próximamente" (WebAuthn pendiente Sprint C)
+- GPS capturado (con timeout de 8s para iOS Safari)
+
+### 🐛 Bugs corregidos en esta sesión
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Falta coma en lista de métodos | `"Rostro",` |
+| 2 | `PuedeUsarHuella` duplicado en BD | Verificar antes de agregar |
+| 3 | `AppTheme` no existe en Kiosko | Crear `lib/theme/app_theme.dart` |
+| 4 | `AuthenticationOptions` no existe en `local_auth` 3.x | Quitar `options` de `authenticate` |
+| 5 | `MainActivity.kt` no era `FlutterFragmentActivity` | Cambiar (requerido por `local_auth`) |
+| 6 | Permisos `USE_BIOMETRIC` faltaban | Agregar en `AndroidManifest.xml` |
+
+### 🗺️ Deuda técnica (Sprint C)
+
+- [ ] **WebAuthn completo** para huella en PWA (backend con `Fido2NetLib` + tabla `EmpleadoCredenciales`)
+- [ ] **Liveness detection** (anti-spoofing)
+- [ ] **Device binding** (1 empleado = 1 celular)
+- [ ] **Actualizar web pública** (`www.appcheck.com.mx`)
+
+---
+
