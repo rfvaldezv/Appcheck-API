@@ -65,14 +65,21 @@ public class EmployeeController : ControllerBase
             return BadRequest(new { mensaje = "El método ID+PIN requiere un PIN." });
         }
 
-        // 🛡️ Validar PIN único por cuenta (para evitar ambigüedad)
+        // 🛡️ Validar par (NumeroEmpleado + PinRespaldo) único GLOBAL
         if (!string.IsNullOrWhiteSpace(request.PinRespaldo))
         {
-            var pinExiste = await _db.Empleados
-                .AnyAsync(e => e.CuentaId == cuentaId && e.PinRespaldo == request.PinRespaldo);
+            var parExiste = await _db.Empleados
+                .AnyAsync(e => e.NumeroEmpleado == request.NumeroEmpleado
+                            && e.PinRespaldo == request.PinRespaldo
+                            && e.Estado == "Activo");
 
-            if (pinExiste)
-                return BadRequest(new { mensaje = "El PIN ya está en uso por otro empleado. Elige uno diferente." });
+            if (parExiste)
+                return BadRequest(new
+                {
+                    mensaje = "El par (Número de Empleado + PIN) ya existe en AppCheck. " +
+                              "Cambia el número de empleado o el PIN.",
+                    tipo = "par_duplicado"
+                });
         }
 
         var existe = await _db.Empleados
@@ -226,6 +233,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
     public async Task<IActionResult> ValidarPin([FromBody] ValidarPinRequest request)
     {
         var empleado = await _db.Empleados
+            .Include(e => e.Cuenta)
             .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado 
                                   && e.PinRespaldo == request.Pin 
                                   && e.Estado == "Activo");
@@ -237,12 +245,14 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         {
             numeroEmpleado = empleado.NumeroEmpleado,
             nombre = empleado.NombreCompleto,
-            metodoLectura = empleado.MetodoLecturaPreferido
+            metodoLectura = empleado.MetodoLecturaPreferido,
+            empresa = empleado.Cuenta.NombreComercial
         });
     }
 
     public class EditarEmpleadoRequest
     {
+        public string NumeroEmpleado { get; set; } = string.Empty;   // 🆕 NUEVO
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "QR";
@@ -275,18 +285,25 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
             });
         }
 
-        // 🛡️ Validar PIN único por cuenta (excluyendo el empleado actual)
+        // 🛡️ Validar par (NumeroEmpleado + PinRespaldo) único GLOBAL (excluyendo el actual)
         if (!string.IsNullOrWhiteSpace(request.PinRespaldo))
         {
-            var pinExiste = await _db.Empleados
-                .AnyAsync(e => e.CuentaId == cuentaId 
-                            && e.PinRespaldo == request.PinRespaldo 
-                            && e.EmpleadoId != empleadoId);
+            var parExiste = await _db.Empleados
+                .AnyAsync(e => e.NumeroEmpleado == request.NumeroEmpleado
+                            && e.PinRespaldo == request.PinRespaldo
+                            && e.EmpleadoId != empleadoId
+                            && e.Estado == "Activo");
 
-            if (pinExiste)
-                return BadRequest(new { mensaje = "El PIN ya está en uso por otro empleado. Elige uno diferente." });
+            if (parExiste)
+                return BadRequest(new
+                {
+                    mensaje = "El par (Número de Empleado + PIN) ya existe en AppCheck. " +
+                              "Cambia el número de empleado o el PIN.",
+                    tipo = "par_duplicado"
+                });
         }
 
+        empleado.NumeroEmpleado = request.NumeroEmpleado;   // 🆕 NUEVO
         empleado.NombreCompleto = request.NombreCompleto;
         empleado.PinRespaldo = request.PinRespaldo;
         empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
