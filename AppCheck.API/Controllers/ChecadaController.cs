@@ -22,6 +22,9 @@ public class ChecadaController : ControllerBase
         _facialService = facialService;
     }
 
+    // =====================================================
+    // DTOs
+    // =====================================================
     public class ChecadaRequest
     {
         public string NumeroEmpleado { get; set; } = string.Empty;
@@ -29,13 +32,28 @@ public class ChecadaController : ControllerBase
         public string TipoChecada { get; set; } = "Entrada";
         public string MetodoUsado { get; set; } = "QR";
         public string? FotoBase64 { get; set; }
-        public string? Pin { get; set; }              // ← NUEVO: para ID+PIN
+        public string? Pin { get; set; }
         public decimal? Latitud { get; set; }
         public decimal? Longitud { get; set; }
         public bool EsOffline { get; set; } = false;
         public DateTimeOffset? TimestampLocal { get; set; }
     }
 
+    public class ChecadaEmpleadoRequest
+    {
+        public string NumeroEmpleado { get; set; } = string.Empty;
+        public string Pin { get; set; } = string.Empty;
+        public string TipoChecada { get; set; } = "Entrada";
+        public string MetodoUsado { get; set; } = "ID+Rostro";
+        public string? FotoBase64 { get; set; }
+        public decimal? Latitud { get; set; }
+        public decimal? Longitud { get; set; }
+        public bool EsOffline { get; set; } = false;
+    }
+
+    // =====================================================
+    // 1. REGISTRAR CHECADA DESDE KIOSKO (APK)
+    // =====================================================
     [HttpPost]
     [AllowAnonymous]
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
@@ -53,7 +71,7 @@ public class ChecadaController : ControllerBase
 
         if (request.MetodoUsado == "Rostro" && string.IsNullOrEmpty(request.NumeroEmpleado))
         {
-            // 🔍 BÚSQUEDA 1 a N: Rostro solo (sin ID)
+            // Búsqueda 1 a N: Rostro solo (sin ID)
             if (string.IsNullOrEmpty(request.FotoBase64))
                 return BadRequest(new { mensaje = "Se requiere la foto para el método Rostro." });
 
@@ -61,7 +79,6 @@ public class ChecadaController : ControllerBase
             if (embeddingEnVivo.Length == 0)
                 return BadRequest(new { mensaje = "No se detectó ningún rostro en la foto." });
 
-            // Buscar en todos los empleados de la cuenta con rostro registrado
             var empleados = await _db.Empleados
                 .Where(e => e.CuentaId == puntoLectura.CuentaId
                          && e.Estado == "Activo"
@@ -87,15 +104,14 @@ public class ChecadaController : ControllerBase
                         mejorMatch = emp;
                     }
                 }
-                catch { /* ignorar empleado con embedding corrupto */ }
+                catch { }
             }
 
-            // Umbral más alto para 1-N (75% en vez de 70%)
             if (mejorMatch == null || mejorSimilitud < 75)
             {
-                return Unauthorized(new 
-                { 
-                    mensaje = $"Rostro no coincide con ningún empleado. Mejor similitud: {mejorSimilitud:F2}% (mínimo 75% para Rostro solo)." 
+                return Unauthorized(new
+                {
+                    mensaje = $"Rostro no coincide con ningún empleado. Mejor similitud: {mejorSimilitud:F2}% (mínimo 75% para Rostro solo)."
                 });
             }
 
@@ -103,12 +119,11 @@ public class ChecadaController : ControllerBase
         }
         else
         {
-            // Búsqueda normal por NumeroEmpleado
             if (string.IsNullOrEmpty(request.NumeroEmpleado))
                 return BadRequest(new { mensaje = "Se requiere el número de empleado." });
 
             empleado = await _db.Empleados
-                .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado 
+                .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado
                                       && e.CuentaId == puntoLectura.CuentaId);
 
             if (empleado == null)
@@ -121,7 +136,6 @@ public class ChecadaController : ControllerBase
         // 3. Validar método según el tipo
         if (request.MetodoUsado == "ID+PIN")
         {
-            // Validar PIN
             if (string.IsNullOrEmpty(request.Pin))
                 return BadRequest(new { mensaje = "Se requiere el PIN para el método ID+PIN." });
 
@@ -130,7 +144,6 @@ public class ChecadaController : ControllerBase
         }
         else if (request.MetodoUsado == "ID+Rostro" || request.MetodoUsado == "QR+Rostro")
         {
-            // Validar rostro
             if (string.IsNullOrEmpty(request.FotoBase64))
                 return BadRequest(new { mensaje = "Se requiere la foto para la validación facial." });
 
@@ -153,10 +166,12 @@ public class ChecadaController : ControllerBase
                 return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}% (mínimo 70%)." });
             }
         }
-        else if (request.MetodoUsado == "Rostro")
+        else if (request.MetodoUsado == "Huella")
         {
-            // Ya se validó arriba (búsqueda 1-N)
-            // Nada más que hacer
+            // La huella ya fue validada en el cliente (local_auth / WebAuthn)
+            // Solo verificamos que el empleado esté autorizado
+            if (!empleado.PuedeUsarHuella)
+                return Unauthorized(new { mensaje = "No tienes autorización para usar huella digital." });
         }
         // QR: sin validación adicional (el QR ya lleva el ID)
 
@@ -214,6 +229,102 @@ public class ChecadaController : ControllerBase
         });
     }
 
+    // =====================================================
+    // 2. REGISTRAR CHECADA DESDE PWA (empleado, sin kiosko)
+    // =====================================================
+    [HttpPost("empleado")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RegistrarChecadaEmpleado([FromBody] ChecadaEmpleadoRequest request)
+    {
+        // 1. Buscar empleado por número y PIN
+        var empleado = await _db.Empleados
+            .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado
+                                  && e.PinRespaldo == request.Pin
+                                  && e.Estado == "Activo");
+
+        if (empleado == null)
+            return Unauthorized(new { mensaje = "ID o PIN incorrecto, o empleado inactivo." });
+
+        // 2. Validar facial si aplica
+        var metodosConRostro = new[] { "ID+Rostro", "QR+Rostro", "Rostro" };
+        if (metodosConRostro.Contains(request.MetodoUsado))
+        {
+            if (string.IsNullOrEmpty(request.FotoBase64))
+                return BadRequest(new { mensaje = "Se requiere la foto para la validación facial." });
+
+            if (string.IsNullOrEmpty(empleado.FaceTemplateHash))
+                return BadRequest(new { mensaje = "El empleado no tiene un rostro registrado." });
+
+            var embeddingEnVivo = _facialService.GenerarEmbedding(request.FotoBase64);
+            if (embeddingEnVivo.Length == 0)
+                return BadRequest(new { mensaje = "No se detectó ningún rostro en la foto." });
+
+            var embeddingGuardado = empleado.FaceTemplateHash
+                .Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(float.Parse)
+                .ToArray();
+
+            var similitud = _facialService.CompararRostros(embeddingGuardado, embeddingEnVivo);
+
+            if (similitud < 70)
+                return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}% (mínimo 70%)." });
+        }
+
+        // 3. Validar huella si aplica
+        if (request.MetodoUsado == "Huella" && !empleado.PuedeUsarHuella)
+            return Unauthorized(new { mensaje = "No tienes autorización para usar huella digital." });
+
+        // 4. Determinar Entrada/Salida
+        var hoy = DateTimeOffset.UtcNow.Date;
+        var ultimaChecada = await _db.RegistrosJornada
+            .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
+            .OrderByDescending(r => r.TimestampServidor)
+            .FirstOrDefaultAsync();
+
+        string tipoChecadaFinal = ultimaChecada?.TipoChecada == "Entrada" ? "Salida" : "Entrada";
+
+        // 5. Generar hash
+        var timestampServidor = DateTimeOffset.UtcNow;
+        var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|APP";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
+
+        // 6. Guardar registro (sin PuntoLecturaId)
+        var nuevoRegistro = new RegistroJornada
+        {
+            EmpleadoId = empleado.EmpleadoId,
+            PuntoLecturaId = null,
+            TipoChecada = tipoChecadaFinal,
+            TimestampServidor = timestampServidor,
+            TimestampLocal = timestampServidor,
+            Latitud = request.Latitud,
+            Longitud = request.Longitud,
+            MetodoUsado = request.MetodoUsado,
+            HashRegistro = hash,
+            EsOffline = request.EsOffline
+        };
+
+        _db.RegistrosJornada.Add(nuevoRegistro);
+        await _db.SaveChangesAsync();
+
+        var saludo = tipoChecadaFinal == "Entrada" ? "¡Buen día" : "¡Hasta luego";
+        var mensaje = $"{saludo}, {empleado.NombreCompleto}! Tu {tipoChecadaFinal.ToLower()} ha sido registrada.";
+
+        return Ok(new
+        {
+            mensaje,
+            empleado = new { empleado.EmpleadoId, empleado.NumeroEmpleado, empleado.NombreCompleto },
+            tipoChecada = tipoChecadaFinal,
+            timestampServidor,
+            hash,
+            esOffline = request.EsOffline,
+            latitud = request.Latitud,
+            longitud = request.Longitud
+        });
+    }
+
+    // =====================================================
+    // 3. HISTORIAL DE CHECADAS
+    // =====================================================
     [HttpGet("historial/{empleadoId}")]
     [Authorize]
     public async Task<IActionResult> HistorialEmpleado(Guid empleadoId)
@@ -242,7 +353,9 @@ public class ChecadaController : ControllerBase
                 r.TimestampLocal,
                 r.MetodoUsado,
                 r.HashRegistro,
-                r.EsOffline
+                r.EsOffline,
+                r.Latitud,
+                r.Longitud
             })
             .ToListAsync();
 
@@ -251,108 +364,6 @@ public class ChecadaController : ControllerBase
             empleado = new { empleado.EmpleadoId, empleado.NombreCompleto, empleado.NumeroEmpleado },
             totalRegistros = registros.Count,
             registros
-        });
-    }
-
-    // =====================================================
-    // 2. CHEQUEAR COMO EMPLEADO (sin kiosko, solo ID + PIN)
-    //    Para la App móvil / PWA del empleado
-    // =====================================================
-    public class ChecadaEmpleadoRequest
-    {
-        public string NumeroEmpleado { get; set; } = string.Empty;
-        public string Pin { get; set; } = string.Empty;
-        public string TipoChecada { get; set; } = "Entrada";
-        public string MetodoUsado { get; set; } = "ID+PIN";
-        public string? FotoBase64 { get; set; }
-        public decimal? Latitud { get; set; }
-        public decimal? Longitud { get; set; }
-        public bool EsOffline { get; set; } = false;
-    }
-
-    [HttpPost("empleado")]
-    [AllowAnonymous]
-    public async Task<IActionResult> RegistrarChecadaEmpleado([FromBody] ChecadaEmpleadoRequest request)
-    {
-        // 1. Buscar empleado por número y PIN
-        var empleado = await _db.Empleados
-            .FirstOrDefaultAsync(e => e.NumeroEmpleado == request.NumeroEmpleado 
-                                  && e.PinRespaldo == request.Pin 
-                                  && e.Estado == "Activo");
-
-        if (empleado == null)
-            return Unauthorized(new { mensaje = "ID o PIN incorrecto, o empleado inactivo." });
-
-        // 2. Validar facial si aplica
-        var metodosConRostro = new[] { "ID+Rostro", "Rostro" };
-        if (metodosConRostro.Contains(request.MetodoUsado))
-        {
-            if (string.IsNullOrEmpty(request.FotoBase64))
-                return BadRequest(new { mensaje = "Se requiere la foto para la validación facial." });
-
-            if (string.IsNullOrEmpty(empleado.FaceTemplateHash))
-                return BadRequest(new { mensaje = "El empleado no tiene un rostro registrado." });
-
-            var embeddingEnVivo = _facialService.GenerarEmbedding(request.FotoBase64);
-            if (embeddingEnVivo.Length == 0)
-                return BadRequest(new { mensaje = "No se detectó ningún rostro en la foto." });
-
-            var embeddingGuardado = empleado.FaceTemplateHash
-                .Split(',', StringSplitOptions.RemoveEmptyEntries)
-                .Select(float.Parse)
-                .ToArray();
-
-            var similitud = _facialService.CompararRostros(embeddingGuardado, embeddingEnVivo);
-
-            if (similitud < 70)
-                return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}% (mínimo 70%)." });
-        }
-
-        // 3. Determinar Entrada/Salida
-        var hoy = DateTimeOffset.UtcNow.Date;
-        var ultimaChecada = await _db.RegistrosJornada
-            .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
-            .OrderByDescending(r => r.TimestampServidor)
-            .FirstOrDefaultAsync();
-
-        string tipoChecadaFinal = ultimaChecada?.TipoChecada == "Entrada" ? "Salida" : "Entrada";
-
-        // 4. Generar hash
-        var timestampServidor = DateTimeOffset.UtcNow;
-        var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|APP";
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
-
-        // 5. Guardar registro
-        var nuevoRegistro = new RegistroJornada
-        {
-            EmpleadoId = empleado.EmpleadoId,
-            PuntoLecturaId = null, // La App del empleado no tiene kiosko asociado
-            TipoChecada = tipoChecadaFinal,
-            TimestampServidor = timestampServidor,
-            TimestampLocal = timestampServidor,
-            Latitud = request.Latitud,
-            Longitud = request.Longitud,
-            MetodoUsado = request.MetodoUsado,
-            HashRegistro = hash,
-            EsOffline = request.EsOffline
-        };
-
-        _db.RegistrosJornada.Add(nuevoRegistro);
-        await _db.SaveChangesAsync();
-
-        var saludo = tipoChecadaFinal == "Entrada" ? "¡Buen día" : "¡Hasta luego";
-        var mensaje = $"{saludo}, {empleado.NombreCompleto}! Tu {tipoChecadaFinal.ToLower()} ha sido registrada.";
-
-        return Ok(new
-        {
-            mensaje,
-            empleado = new { empleado.EmpleadoId, empleado.NumeroEmpleado, empleado.NombreCompleto },
-            tipoChecada = tipoChecadaFinal,
-            timestampServidor,
-            hash,
-            esOffline = request.EsOffline,
-            latitud = request.Latitud,
-            longitud = request.Longitud
         });
     }
 }

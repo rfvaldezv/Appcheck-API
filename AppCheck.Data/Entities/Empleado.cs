@@ -10,6 +10,7 @@ public class Empleado
     public string MetodoLecturaPreferido { get; set; } = "Mix";
     public string? FaceTemplateHash { get; set; }
     public string Estado { get; set; } = "Activo";
+    public bool PuedeUsarHuella { get; set; } = false;  // Admin decide
 
     public Cuenta Cuenta { get; set; } = null!;
     public ICollection<RegistroJornada> RegistrosJornada { get; set; } = new List<RegistroJornada>();

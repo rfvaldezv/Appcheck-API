@@ -22,7 +22,8 @@ public class EmployeeController : ControllerBase
         "QR+Rostro",    // QR + rostro (doble factor)
         "ID+PIN",       // ID + PIN (doble factor, sin cámara)
         "ID+Rostro",    // ID + rostro (doble factor, natural)
-        "Rostro"        // Rostro solo (identifica por sí mismo)
+        "Rostro",       // Rostro solo (identifica por sí mismo)
+        "Huella"        // Huella Digital
     };
 
     public EmployeeController(AppCheckDbContext db, FacialRecognitionService facialService)
