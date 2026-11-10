@@ -11,6 +11,11 @@ public class PuntoLectura
     public string EstadoLicencia { get; set; } = "Activa";
     public DateTimeOffset? FechaExpiracionLicencia { get; set; }
     public DateTimeOffset? UltimoHeartbeat { get; set; }
+    
+    // 🆕 Geofence
+    public decimal? Latitud { get; set; }
+    public decimal? Longitud { get; set; }
+    public int RadioMetros { get; set; } = 100;
 
     public Cuenta Cuenta { get; set; } = null!;
     public ICollection<RegistroJornada> RegistrosJornada { get; set; } = new List<RegistroJornada>();

@@ -37,6 +37,7 @@ public class ChecadaController : ControllerBase
         public decimal? Longitud { get; set; }
         public bool EsOffline { get; set; } = false;
         public DateTimeOffset? TimestampLocal { get; set; }
+        public float? LivenessScore { get; set; }
     }
 
     public class ChecadaEmpleadoRequest
@@ -49,6 +50,70 @@ public class ChecadaController : ControllerBase
         public decimal? Latitud { get; set; }
         public decimal? Longitud { get; set; }
         public bool EsOffline { get; set; } = false;
+        public float? LivenessScore { get; set; }
+    }
+
+    // =====================================================
+    // HELPER: Calcular distancia
+    // =====================================================
+    private static double CalcularDistancia(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double R = 6371000;
+        var dLat = (lat2 - lat1) * Math.PI / 180;
+        var dLon = (lon2 - lon1) * Math.PI / 180;
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(lat1 * Math.PI / 180) * Math.Cos(lat2 * Math.PI / 180) *
+                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return R * c;
+    }
+
+    // =====================================================
+    // HELPER: Validar geofence
+    // =====================================================
+    private IActionResult? ValidarGeofence(PuntoLectura puntoLectura, decimal? latitud, decimal? longitud)
+    {
+        if (!puntoLectura.Latitud.HasValue || !puntoLectura.Longitud.HasValue)
+            return null;
+
+        if (!latitud.HasValue || !longitud.HasValue)
+            return BadRequest(new { mensaje = "Este kiosko requiere GPS. Activa la ubicación en tu celular." });
+
+        var distancia = CalcularDistancia(
+            (double)puntoLectura.Latitud.Value,
+            (double)puntoLectura.Longitud.Value,
+            (double)latitud.Value,
+            (double)longitud.Value
+        );
+
+        if (distancia > puntoLectura.RadioMetros)
+        {
+            return Unauthorized(new
+            {
+                mensaje = $"Estás a {distancia:F0} metros del kiosko. Máximo permitido: {puntoLectura.RadioMetros} metros."
+            });
+        }
+
+        return null;
+    }
+
+    // =====================================================
+    // HELPER: Validar liveness
+    // =====================================================
+    private IActionResult? ValidarLiveness(float? livenessScore)
+    {
+        if (!livenessScore.HasValue)
+            return null;
+
+        if (livenessScore.Value < 0.8f)
+        {
+            return Unauthorized(new
+            {
+                mensaje = "Liveness no verificado. Asegúrate de que eres una persona real (no una foto)."
+            });
+        }
+
+        return null;
     }
 
     // =====================================================
@@ -58,7 +123,6 @@ public class ChecadaController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
     {
-        // 1. Validar Punto de Lectura
         var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.TokenPuntoLectura)));
         var puntoLectura = await _db.PuntosLectura
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
@@ -66,12 +130,16 @@ public class ChecadaController : ControllerBase
         if (puntoLectura == null)
             return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
 
-        // 2. Buscar empleado
+        var geofenceError = ValidarGeofence(puntoLectura, request.Latitud, request.Longitud);
+        if (geofenceError != null) return geofenceError;
+
+        var livenessError = ValidarLiveness(request.LivenessScore);
+        if (livenessError != null) return livenessError;
+
         Empleado? empleado = null;
 
         if (request.MetodoUsado == "Rostro" && string.IsNullOrEmpty(request.NumeroEmpleado))
         {
-            // Búsqueda 1 a N
             if (string.IsNullOrEmpty(request.FotoBase64))
                 return BadRequest(new { mensaje = "Se requiere la foto para el método Rostro." });
 
@@ -133,7 +201,6 @@ public class ChecadaController : ControllerBase
         if (empleado.Estado != "Activo")
             return BadRequest(new { mensaje = "El empleado está inactivo." });
 
-        // 3. Validar método
         if (request.MetodoUsado == "ID+PIN")
         {
             if (string.IsNullOrEmpty(request.Pin))
@@ -170,7 +237,6 @@ public class ChecadaController : ControllerBase
                 return Unauthorized(new { mensaje = "No tienes autorización para usar huella." });
         }
 
-        // 4. Determinar Entrada/Salida
         var hoy = DateTimeOffset.UtcNow.Date;
         var ultimaChecada = await _db.RegistrosJornada
             .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
@@ -179,12 +245,10 @@ public class ChecadaController : ControllerBase
 
         string tipoChecadaFinal = ultimaChecada?.TipoChecada == "Entrada" ? "Salida" : "Entrada";
 
-        // 5. Generar hash
         var timestampServidor = DateTimeOffset.UtcNow;
         var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|{puntoLectura.PuntoLecturaId}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
 
-        // 6. Guardar
         var nuevoRegistro = new RegistroJornada
         {
             EmpleadoId = empleado.EmpleadoId,
@@ -233,7 +297,9 @@ public class ChecadaController : ControllerBase
         if (empleado == null)
             return Unauthorized(new { mensaje = "ID o PIN incorrecto, o empleado inactivo." });
 
-        // Validar facial
+        var livenessError = ValidarLiveness(request.LivenessScore);
+        if (livenessError != null) return livenessError;
+
         var metodosConRostro = new[] { "ID+Rostro", "QR+Rostro", "Rostro" };
         if (metodosConRostro.Contains(request.MetodoUsado))
         {
@@ -258,11 +324,9 @@ public class ChecadaController : ControllerBase
                 return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}%." });
         }
 
-        // Validar huella
         if (request.MetodoUsado == "Huella" && !empleado.PuedeUsarHuella)
             return Unauthorized(new { mensaje = "No tienes autorización para usar huella." });
 
-        // Determinar Entrada/Salida
         var hoy = DateTimeOffset.UtcNow.Date;
         var ultimaChecada = await _db.RegistrosJornada
             .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
@@ -271,12 +335,10 @@ public class ChecadaController : ControllerBase
 
         string tipoChecadaFinal = ultimaChecada?.TipoChecada == "Entrada" ? "Salida" : "Entrada";
 
-        // Hash
         var timestampServidor = DateTimeOffset.UtcNow;
         var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|APP";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
 
-        // Guardar
         var nuevoRegistro = new RegistroJornada
         {
             EmpleadoId = empleado.EmpleadoId,
@@ -381,30 +443,25 @@ public class ChecadaController : ControllerBase
             .Where(r => r.TimestampServidor >= fechaInicio
                      && r.TimestampServidor <= fechaFin);
 
-        // Si NO es SuperAdmin, solo ve su cuenta
         if (rol != "SuperAdmin")
         {
             query = query.Where(r => r.Empleado.CuentaId == cuentaIdUsuario);
         }
-        // Si es SuperAdmin y filtra por cuenta
         else if (cuentaId.HasValue)
         {
             query = query.Where(r => r.Empleado.CuentaId == cuentaId.Value);
         }
 
-        // Filtro por vendedor
         if (vendedorId.HasValue)
         {
             query = query.Where(r => r.Empleado.Cuenta.VendedorId == vendedorId.Value);
         }
 
-        // Filtro por método
         if (!string.IsNullOrEmpty(metodoUsado))
         {
             query = query.Where(r => r.MetodoUsado == metodoUsado);
         }
 
-        // Filtro por empleado
         if (empleadoId.HasValue)
         {
             query = query.Where(r => r.EmpleadoId == empleadoId.Value);
