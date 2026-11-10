@@ -572,3 +572,68 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ### 🎯 Arquitectura del GPS
 
+
+## 🏆 HITO — Filtros de Reportes STPS (10/Nov/2026)
+
+**Estado:** 🟢 **Admin Web 100% funcional con reportes filtrables.**
+
+### ✅ Filtros implementados
+
+| # | Filtro | Backend | Frontend |
+|---|--------|---------|----------|
+| 1 | **Fecha inicio** | ✅ | ✅ |
+| 2 | **Fecha fin** | ✅ | ✅ |
+| 3 | **Empresa** (solo SuperAdmin) | ✅ | ✅ |
+| 4 | **Vendedor** (solo SuperAdmin) | ✅ | ✅ |
+| 5 | **Método** (QR, Rostro, PIN, etc.) | ✅ | ✅ |
+| 6 | **Empleado** (opcional) | ✅ | ⏳ |
+
+### 🆕 Endpoints nuevos
+
+**`GET /api/admin/empresas`**
+- Devuelve todas las cuentas (para dropdown de filtro)
+- Solo SuperAdmin
+
+**`GET /api/admin/vendedores`**
+- Devuelve todos los usuarios con rol Vendedor
+- Solo SuperAdmin
+
+**`GET /api/checada/reporte` (actualizado)**
+- Acepta query params: `fechaInicio`, `fechaFin`, `cuentaId`, `vendedorId`, `metodoUsado`, `empleadoId`
+- Filtra por los parámetros proporcionados
+
+### 🎯 Validación en producción
+
+- ✅ Filtro por fechas: funciona
+- ✅ Filtro por empresa: funciona
+- ✅ Filtro por vendedor: funciona (después de asignar vendedor a la cuenta)
+- ✅ Filtro por método: funciona (QR, Rostro, ID+Rostro, Huella)
+- ✅ Combinaciones de filtros: funcionan
+- ✅ Exportación CSV: incluye filtros aplicados
+- ✅ Exportación Excel: incluye filtros aplicados
+
+### 🐛 Bugs corregidos
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `null: type 'String'` en `listarKioskos()` | Manejar `{value: [...], Count: N}` |
+| 2 | `listarEmpleados()` duplicado | Eliminar duplicado |
+| 3 | `DropdownMenuItem<String?>` no compatible | Cambiar a `<String>` |
+| 4 | Fechas perdidas al agregar filtros | Reestructurar `_buildReportes()` |
+
+### 🗺️ Modelo de negocio
+
+- **SuperAdmin** → ve todas las empresas, filtra por vendedor
+- **TenantAdmin** → ve solo su empresa
+- **Vendedor** → ve sus empresas asignadas
+- **Cada cuenta** tiene un vendedor asignado (`VendedorId`)
+
+### 🗺️ Roadmap post-MVP
+
+- [ ] **FASE 2:** Registrar 3-5 empleados reales
+- [ ] **FASE 3:** Documentar instalación (APK + PWA)
+- [ ] **Sprint C:** WebAuthn (huella en PWA), liveness, device binding, geofence
+- [ ] **Salir a vender**
+
+---
+
