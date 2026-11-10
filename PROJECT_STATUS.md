@@ -544,3 +544,31 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+
+## 🏆 HITO — GPS en TODOS los Métodos (09/Nov/2026)
+
+**Estado:** 🟢 **MVP COMPLETO con GPS en todos los métodos.**
+
+### ✅ Validación end-to-end
+
+| Método | GPS capturado | PuntoLecturaId |
+|--------|---------------|----------------|
+| **ID+PIN** | ✅ 20.634245, -103.419400 | NULL (PWA) |
+| **ID+Rostro** | ✅ 20.634202, -103.419369 | NULL (PWA) |
+| **Rostro** | ✅ 20.634210, -103.419378 | NULL (PWA) |
+| **QR** | ❌ (no aplica en PWA) | — |
+| **QR+Rostro** | ❌ (no aplica en PWA) | — |
+| **Huella** | ⏳ (WebAuthn pendiente) | — |
+
+### 🐛 Bugs corregidos en esta sesión
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | GPS solo se capturaba en `CameraScreen` | Capturar en `HomeScreen` (antes de decidir método) |
+| 2 | `ID+PIN` no enviaba GPS | Agregar `latitud`/`longitud` al `registrarChecadaEmpleado` |
+| 3 | `CameraScreen` capturaba GPS 2 veces | Recibir GPS del `HomeScreen` (no capturar de nuevo) |
+| 4 | Debug log visible en producción | Eliminar el cuadro negro de logs |
+| 5 | Falta import de `geolocator` en `home_screen.dart` | Agregado |
+
+### 🎯 Arquitectura del GPS
+
