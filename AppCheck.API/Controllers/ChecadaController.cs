@@ -53,8 +53,16 @@ public class ChecadaController : ControllerBase
         public float? LivenessScore { get; set; }
     }
 
+    public class EditarChecadaRequest
+    {
+        public string? TipoChecada { get; set; }
+        public DateTimeOffset? TimestampServidor { get; set; }
+        public string? MetodoUsado { get; set; }
+        public string? MotivoCorreccion { get; set; }
+    }
+
     // =====================================================
-    // HELPER: Calcular distancia
+    // HELPER: Calcular distancia (Haversine)
     // =====================================================
     private static double CalcularDistancia(double lat1, double lon1, double lat2, double lon2)
     {
@@ -117,12 +125,38 @@ public class ChecadaController : ControllerBase
     }
 
     // =====================================================
+    // HELPER: Anti-duplicado (mismo tipo en < 5 minutos)
+    // =====================================================
+    private async Task<IActionResult?> ValidarAntiDuplicado(Guid empleadoId, string tipoChecada, DateTimeOffset timestampServidor)
+    {
+        var cincoMinutosAtras = timestampServidor.AddMinutes(-5);
+        var checadaReciente = await _db.RegistrosJornada
+            .Where(r => r.EmpleadoId == empleadoId
+                     && r.TipoChecada == tipoChecada
+                     && r.TimestampServidor >= cincoMinutosAtras)
+            .FirstOrDefaultAsync();
+
+        if (checadaReciente != null)
+        {
+            var minutos = (timestampServidor - checadaReciente.TimestampServidor).TotalMinutes;
+            return BadRequest(new
+            {
+                mensaje = $"Ya registraste tu {tipoChecada.ToLower()} hace {minutos:F0} minutos. " +
+                          $"Espera al menos 5 minutos antes de intentar de nuevo."
+            });
+        }
+
+        return null;
+    }
+
+    // =====================================================
     // 1. REGISTRAR CHECADA DESDE KIOSKO (APK)
     // =====================================================
     [HttpPost]
     [AllowAnonymous]
     public async Task<IActionResult> RegistrarChecada([FromBody] ChecadaRequest request)
     {
+        // 1. Validar Punto de Lectura
         var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.TokenPuntoLectura)));
         var puntoLectura = await _db.PuntosLectura
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
@@ -130,16 +164,20 @@ public class ChecadaController : ControllerBase
         if (puntoLectura == null)
             return Unauthorized(new { mensaje = "Punto de lectura no autorizado o suspendido." });
 
+        // 1.5. Validar geofence
         var geofenceError = ValidarGeofence(puntoLectura, request.Latitud, request.Longitud);
         if (geofenceError != null) return geofenceError;
 
+        // 1.6. Validar liveness
         var livenessError = ValidarLiveness(request.LivenessScore);
         if (livenessError != null) return livenessError;
 
+        // 2. Buscar empleado
         Empleado? empleado = null;
 
         if (request.MetodoUsado == "Rostro" && string.IsNullOrEmpty(request.NumeroEmpleado))
         {
+            // Búsqueda 1 a N
             if (string.IsNullOrEmpty(request.FotoBase64))
                 return BadRequest(new { mensaje = "Se requiere la foto para el método Rostro." });
 
@@ -201,6 +239,7 @@ public class ChecadaController : ControllerBase
         if (empleado.Estado != "Activo")
             return BadRequest(new { mensaje = "El empleado está inactivo." });
 
+        // 3. Validar método
         if (request.MetodoUsado == "ID+PIN")
         {
             if (string.IsNullOrEmpty(request.Pin))
@@ -237,6 +276,7 @@ public class ChecadaController : ControllerBase
                 return Unauthorized(new { mensaje = "No tienes autorización para usar huella." });
         }
 
+        // 4. Determinar Entrada/Salida
         var hoy = DateTimeOffset.UtcNow.Date;
         var ultimaChecada = await _db.RegistrosJornada
             .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
@@ -245,10 +285,16 @@ public class ChecadaController : ControllerBase
 
         string tipoChecadaFinal = ultimaChecada?.TipoChecada == "Entrada" ? "Salida" : "Entrada";
 
+        // 5. Anti-duplicado
         var timestampServidor = DateTimeOffset.UtcNow;
+        var duplicadoError = await ValidarAntiDuplicado(empleado.EmpleadoId, tipoChecadaFinal, timestampServidor);
+        if (duplicadoError != null) return duplicadoError;
+
+        // 6. Generar hash
         var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|{puntoLectura.PuntoLecturaId}";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
 
+        // 7. Guardar
         var nuevoRegistro = new RegistroJornada
         {
             EmpleadoId = empleado.EmpleadoId,
@@ -297,9 +343,11 @@ public class ChecadaController : ControllerBase
         if (empleado == null)
             return Unauthorized(new { mensaje = "ID o PIN incorrecto, o empleado inactivo." });
 
+        // Validar liveness
         var livenessError = ValidarLiveness(request.LivenessScore);
         if (livenessError != null) return livenessError;
 
+        // Validar facial
         var metodosConRostro = new[] { "ID+Rostro", "QR+Rostro", "Rostro" };
         if (metodosConRostro.Contains(request.MetodoUsado))
         {
@@ -324,9 +372,11 @@ public class ChecadaController : ControllerBase
                 return Unauthorized(new { mensaje = $"Rostro no coincide. Similitud: {similitud}%." });
         }
 
+        // Validar huella
         if (request.MetodoUsado == "Huella" && !empleado.PuedeUsarHuella)
             return Unauthorized(new { mensaje = "No tienes autorización para usar huella." });
 
+        // Determinar Entrada/Salida
         var hoy = DateTimeOffset.UtcNow.Date;
         var ultimaChecada = await _db.RegistrosJornada
             .Where(r => r.EmpleadoId == empleado.EmpleadoId && r.TimestampServidor.Date == hoy)
@@ -335,10 +385,16 @@ public class ChecadaController : ControllerBase
 
         string tipoChecadaFinal = ultimaChecada?.TipoChecada == "Entrada" ? "Salida" : "Entrada";
 
+        // Anti-duplicado
         var timestampServidor = DateTimeOffset.UtcNow;
+        var duplicadoError = await ValidarAntiDuplicado(empleado.EmpleadoId, tipoChecadaFinal, timestampServidor);
+        if (duplicadoError != null) return duplicadoError;
+
+        // Hash
         var dataToHash = $"{empleado.EmpleadoId}|{tipoChecadaFinal}|{timestampServidor.ToUnixTimeSeconds()}|APP";
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
 
+        // Guardar
         var nuevoRegistro = new RegistroJornada
         {
             EmpleadoId = empleado.EmpleadoId,
@@ -494,6 +550,90 @@ public class ChecadaController : ControllerBase
             fechaInicio,
             fechaFin,
             registros
+        });
+    }
+
+    // =====================================================
+    // 5. EDITAR CHECADA (solo RH - TenantAdmin o SuperAdmin)
+    // =====================================================
+    [HttpPut("{registroId}")]
+    [Authorize]
+    public async Task<IActionResult> EditarChecada(Guid registroId, [FromBody] EditarChecadaRequest request)
+    {
+        // Validar rol manualmente (el claim se llama "Rol", no ClaimTypes.Role)
+        var rol = User.FindFirst("Rol")?.Value;
+        if (rol != "SuperAdmin" && rol != "TenantAdmin")
+            return Forbid();
+
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+        var usuarioId = User.FindFirst("UsuarioId")?.Value;
+
+        var registro = await _db.RegistrosJornada
+            .Include(r => r.Empleado)
+            .FirstOrDefaultAsync(r => r.RegistroId == registroId);
+
+        if (registro == null)
+            return NotFound(new { mensaje = "Checada no encontrada." });
+
+        if (rol != "SuperAdmin" && registro.Empleado.CuentaId != cuentaId)
+            return Unauthorized(new { mensaje = "No tienes permiso para editar esta checada." });
+
+        // Guardar valores originales para auditoría
+        var tipoOriginal = registro.TipoChecada;
+        var timestampOriginal = registro.TimestampServidor;
+        var metodoOriginal = registro.MetodoUsado;
+
+        // Aplicar cambios
+        if (!string.IsNullOrEmpty(request.TipoChecada))
+            registro.TipoChecada = request.TipoChecada;
+
+        if (request.TimestampServidor.HasValue)
+            registro.TimestampServidor = request.TimestampServidor.Value;
+
+        if (!string.IsNullOrEmpty(request.MetodoUsado))
+            registro.MetodoUsado = request.MetodoUsado;
+
+        // Regenerar hash
+        var dataToHash = $"{registro.EmpleadoId}|{registro.TipoChecada}|{registro.TimestampServidor.ToUnixTimeSeconds()}|{registro.PuntoLecturaId}";
+        registro.HashRegistro = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
+
+        // Guardar auditoría
+        try
+        {
+            var log = new BitacoraAuditoria
+            {
+                LogId = Guid.NewGuid(),
+                CuentaId = registro.Empleado.CuentaId,
+                UsuarioId = usuarioId != null ? Guid.Parse(usuarioId) : null,
+                Accion = "EDITAR_CHECADA",
+                Detalle = $"Registro {registroId}: " +
+                          $"Tipo: {tipoOriginal} → {registro.TipoChecada}, " +
+                          $"Timestamp: {timestampOriginal} → {registro.TimestampServidor}, " +
+                          $"Método: {metodoOriginal} → {registro.MetodoUsado}. " +
+                          $"Motivo: {request.MotivoCorreccion ?? "No especificado"}",
+                Fecha = DateTimeOffset.UtcNow
+            };
+            _db.BitacoraAuditoria.Add(log);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Auditoría] No se pudo guardar el log: {ex.Message}");
+        }
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            mensaje = "Checada editada correctamente.",
+            registroId = registro.RegistroId,
+            tipoChecada = registro.TipoChecada,
+            timestampServidor = registro.TimestampServidor,
+            metodoUsado = registro.MetodoUsado,
+            hashRegistro = registro.HashRegistro
         });
     }
 }
