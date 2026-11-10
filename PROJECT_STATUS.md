@@ -637,3 +637,51 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+
+## 🏆 HITO — Dashboard con KPIs y Gráficos (10/Nov/2026)
+
+**Estado:** 🟢 **Admin Web con Dashboard analítico.**
+
+### ✅ Dashboard con 8 KPIs
+
+| # | KPI | Descripción |
+|---|-----|-------------|
+| 1 | **Total Checadas** | Checadas del período |
+| 2 | **Total Empleados** | Empleados activos |
+| 3 | **Empleados con Checada** | Empleados que checaron al menos 1 vez |
+| 4 | **% Puntuales** | Checadas antes de las 9:00 AM |
+| 5 | **% Retardos** | Checadas después de las 9:00 AM |
+| 6 | **Horas Extra** | Checadas de salida después de las 6:00 PM |
+| 7 | **Ausencias** | Empleados sin checada |
+| 8 | **Kioskos** | Kioskos activos |
+
+### 📊 Gráficos implementados
+
+| Gráfico | Tipo | Descripción |
+|---------|------|-------------|
+| **Checadas por Día** | Líneas | Tendencia día a día con tooltip |
+| **Métodos Usados** | Pastel | Distribución de métodos con leyenda |
+
+### 🆕 Endpoint nuevo
+
+**`GET /api/analytics/dashboard`**
+- Devuelve los 8 KPIs + 2 gráficos
+- Filtra por fechaInicio y fechaFin (default: mes actual)
+- SuperAdmin ve todo, TenantAdmin solo su cuenta
+
+### 🐛 Bugs corregidos
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Gráfica de líneas sin valores visibles | Tooltip + puntos más grandes |
+| 2 | Gráfico de pastel sin leyenda | Leyenda al lado (color + método + total) |
+| 3 | `tooltipRoundedRadius` no existe en `fl_chart 1.3.1` | Quitado |
+
+### 🗺️ Roadmap post-dashboard
+
+- [ ] **Reportes adicionales:** comparativo mes anterior, histórico del año, por empleado, por sucursal, horas extra, retardos, ausencias
+- [ ] **Sucursales:** CRUD de sucursales (multi-ubicación)
+- [ ] **Salir a vender**
+
+---
+
