@@ -736,3 +736,28 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 - [ ] **Fase B (Reportes):** Asociar las checadas al `TurnoId` para calcular retardos exactos según el horario del empleado.
 - [ ] **Fase C (Geofence):** Validar que el GPS de la checada esté dentro del `RadioMetros` de la Sucursal.
 - [ ] **Deuda Técnica:** Fix de acentos (Mojibake) en el Admin Web.
+
+
+## 🏆 HITO — Jerarquía Completa: Sucursales + Turnos + Empleados (11/Nov/2026)
+
+**Estado:** 🟢 Módulo de Configuración de Empresa terminado al 100%.
+
+### ✅ Lo que se logró
+- **Base de Datos:** Se agregó `SucursalId` a la tabla `Empleados`.
+- **Backend:** El `EmployeeController` ahora acepta `SucursalId` y `TurnoId` en el alta y edición. Se agregó lógica para cerrar el turno anterior y abrir uno nuevo (soporte para rotación).
+- **Frontend:** El modal de "Dar de Alta Empleado" y "Editar Empleado" ahora tienen dropdowns para seleccionar la Sucursal y el Turno.
+- **Blindaje:** Se implementaron bloques `try-catch` en el backend para evitar mostrar errores crudos de Entity Framework al usuario (ahora devuelve mensajes amigables).
+
+### 🐛 Bugs corregidos en esta sesión
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Error CS0117: 'Empleado' no contiene 'SucursalId' | Se agregó la propiedad a la entidad en C#. |
+| 2 | Menús de catálogos no aparecían en escritorio | Se modificó `_buildSidebar()` (el de escritorio) además del `_buildDrawer()` (móvil). |
+| 3 | Error 500 "An error occurred while saving the entity changes" | Se envolvió el guardado en `try-catch` y se validó la estructura de la BD. |
+| 4 | `numeroEmpleado` faltante en la llamada a `editarEmpleado` | Se agregó el parámetro al modal de edición. |
+
+### 🗺️ Roadmap post-configuración
+- [ ] **Fase B (Reportes):** Calcular retardos exactos cruzando la checada con el `TurnoId` del empleado.
+- [ ] **Fase C (Geofence):** Validar que el GPS de la checada esté dentro del `RadioMetros` de la Sucursal.
+- [ ] **Deuda Técnica:** Fix de acentos (Mojibake) en el Admin Web.
+

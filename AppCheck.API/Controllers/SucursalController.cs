@@ -50,5 +50,43 @@ namespace AppCheck.API.Controllers
             await _db.SaveChangesAsync();
             return Ok(new { mensaje = "Sucursal creada", sucursalId = nueva.SucursalId });
         }
+
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Editar(Guid id, [FromBody] CrearSucursalRequest req)
+        {
+            var cuentaId = Guid.Parse(User.FindFirst("CuentaId")?.Value!);
+            var sucursal = await _db.Sucursales.FirstOrDefaultAsync(s => s.SucursalId == id && s.CuentaId == cuentaId);
+
+            if (sucursal == null) return NotFound(new { mensaje = "Sucursal no encontrada." });
+
+            sucursal.Nombre = req.Nombre;
+            sucursal.Direccion = req.Direccion;
+            sucursal.Latitud = req.Latitud;
+            sucursal.Longitud = req.Longitud;
+            sucursal.RadioMetros = req.RadioMetros;
+
+            await _db.SaveChangesAsync();
+            return Ok(new { mensaje = "Sucursal actualizada correctamente." });
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Eliminar(Guid id)
+        {
+            var cuentaId = Guid.Parse(User.FindFirst("CuentaId")?.Value!);
+            var sucursal = await _db.Sucursales.FirstOrDefaultAsync(s => s.SucursalId == id && s.CuentaId == cuentaId);
+
+            if (sucursal == null) return NotFound(new { mensaje = "Sucursal no encontrada." });
+
+            // 🛡️ Validar que no tenga empleados asignados
+            var tieneEmpleados = await _db.Empleados.AnyAsync(e => e.SucursalId == id && e.Estado == "Activo");
+            if (tieneEmpleados)
+                return BadRequest(new { mensaje = "No se puede eliminar la sucursal porque tiene empleados activos asignados." });
+
+            // Borrado lógico (o físico, según prefieras. Aquí usamos lógico)
+            sucursal.Activa = false;
+            await _db.SaveChangesAsync();
+
+            return Ok(new { mensaje = "Sucursal eliminada correctamente." });
+        }
     }
 }
