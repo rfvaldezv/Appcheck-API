@@ -685,3 +685,30 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 
 ---
 
+
+## 🏆 HITO — CRUD de Checadas desde Admin + Fix IIS WebDAV (10/Nov/2026)
+
+**Estado:** 🟢 Admin Web 100% funcional para crear y eliminar checadas.
+
+### ✅ Lo que se logró
+- **Backend:** Endpoint `POST /api/checada/manual` y `DELETE /api/checada/{id}` probados y funcionando en producción.
+- **Admin Web:** Modal "Nueva Checada Manual" y botón de eliminar checadas con confirmación, validados end-to-end.
+- **Infraestructura:** Se deshabilitó **WebDAV** en el IIS del VPS, lo cual estaba bloqueando las peticiones POST/DELETE con error 405 (Method Not Allowed).
+
+### 🐛 Bugs corregidos
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Error 405 en `/api/checada/manual` | Se removió el módulo WebDAV de IIS (`web.config` y módulos globales). |
+| 2 | `FormatException: Unexpected end of JSON` en Admin | Causado por el 405 previo. Resuelto al habilitar el endpoint. |
+| 3 | Envío incorrecto de parámetro | El Admin ahora envía el `empleadoId` (GUID) en lugar del `numeroEmpleado` para evitar el 404. |
+| 4 | Limpieza de empleado duplicado | Se borraron registros en `AcuerdosFirmados`, `RegistrosJornada` y `EmpleadoCredenciales` antes de eliminar el empleado. |
+
+### 🗺️ Deuda Técnica (Sprint C)
+- [ ] **Fix de acentos (Mojibake):** Los textos en el Admin Web muestran `Ã³` en lugar de `ó`. Pendiente ajustar la codificación UTF-8 en el compilador de Flutter o en los archivos fuente locales.
+- [ ] **Liveness detection** (anti-spoofing).
+- [ ] **Device binding** (1 empleado = 1 celular).
+- [ ] **WebAuthn** para huella en PWA.
+
+### 🎯 Próximo paso inmediato
+- [ ] Registrar empleados reales (FASE 2).
+- [ ] Documentar instalación de APK + PWA para clientes.
