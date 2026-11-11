@@ -761,3 +761,26 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 - [ ] **Fase C (Geofence):** Validar que el GPS de la checada esté dentro del `RadioMetros` de la Sucursal.
 - [ ] **Deuda Técnica:** Fix de acentos (Mojibake) en el Admin Web.
 
+
+## 🏆 HITO — CRUD Completo de Catálogos (Sucursales y Turnos) (11/Nov/2026)
+
+**Estado:** 🟢 Módulo de Configuración de Empresa 100% terminado.
+
+### ✅ Lo que se logró
+- **Sucursales:** CRUD completo (Crear, Leer, Editar, Eliminar). Borrado protegido: no permite eliminar si tiene empleados activos asignados.
+- **Turnos:** CRUD completo. El modal de edición ahora permite configurar los **7 días de la semana** (hora entrada, hora salida, tolerancia y si es laborable o no).
+- **Empleados:** Ya se pueden asignar a una Sucursal y a un Turno desde la interfaz gráfica.
+- **Backend:** Se implementaron bloques `try-catch` para evitar errores crudos de EF y se resolvió el `DbUpdateConcurrencyException` separando las operaciones de borrado e inserción en la edición de turnos.
+- **Frontend:** Se agregaron íconos de editar/eliminar en las tarjetas de los catálogos. Se actualizó `api_service.dart` con los métodos `editarSucursal`, `eliminarSucursal`, `editarTurno` y `eliminarTurno`.
+
+### 🐛 Bugs corregidos en esta sesión
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `DbUpdateConcurrencyException` al editar turnos | Se usó `ExecuteDeleteAsync` y `ChangeTracker.Clear()` para aislar las operaciones de borrado e inserción. |
+| 2 | Los turnos solo se creaban con horario por defecto | Se agregó el modal de edición de horarios día por día. |
+| 3 | No se podían editar ni eliminar sucursales | Se agregaron los endpoints `PUT` y `DELETE` en la API y los botones en el Admin. |
+
+### 🗺️ Próximo paso (Fase B)
+- [ ] **Cálculo de Retardos:** Cruzar la checada con el `TurnoId` del empleado para determinar si llegó puntual o tarde.
+- [ ] **Geofence:** Validar que el GPS de la checada esté dentro del radio de la sucursal.
+
