@@ -15,15 +15,9 @@ public class EmployeeController : ControllerBase
     private readonly AppCheckDbContext _db;
     private readonly FacialRecognitionService _facialService;
 
-    // 🛡️ Lista canónica de métodos válidos (5 métodos)
     private static readonly string[] MetodosValidos = new[] 
     { 
-        "QR",           // QR solo (identifica)
-        "QR+Rostro",    // QR + rostro (doble factor)
-        "ID+PIN",       // ID + PIN (doble factor, sin cámara)
-        "ID+Rostro",    // ID + rostro (doble factor, natural)
-        "Rostro",       // Rostro solo (identifica por sí mismo)
-        "Huella"        // Huella Digital
+        "QR", "QR+Rostro", "ID+PIN", "ID+Rostro", "Rostro", "Huella" 
     };
 
     public EmployeeController(AppCheckDbContext db, FacialRecognitionService facialService)
@@ -39,6 +33,9 @@ public class EmployeeController : ControllerBase
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "QR";
         public string? FotoBase64 { get; set; }
+        
+        public Guid? SucursalId { get; set; }
+        public Guid? TurnoId { get; set; }
     }
 
     [HttpPost]
@@ -50,23 +47,12 @@ public class EmployeeController : ControllerBase
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
 
-        // 🛡️ Validar que el método de lectura sea canónico
         if (!MetodosValidos.Contains(request.MetodoLecturaPreferido))
-        {
-            return BadRequest(new
-            {
-                mensaje = $"Método de lectura inválido: '{request.MetodoLecturaPreferido}'. " +
-                          $"Valores permitidos: {string.Join(", ", MetodosValidos)}"
-            });
-        }
+            return BadRequest(new { mensaje = $"Método inválido. Valores permitidos: {string.Join(", ", MetodosValidos)}" });
 
-        // 🛡️ Validar PIN obligatorio si el método lo requiere
         if ((request.MetodoLecturaPreferido == "ID+PIN") && string.IsNullOrWhiteSpace(request.PinRespaldo))
-        {
             return BadRequest(new { mensaje = "El método ID+PIN requiere un PIN." });
-        }
 
-        // 🛡️ Validar par (NumeroEmpleado + PinRespaldo) único GLOBAL
         if (!string.IsNullOrWhiteSpace(request.PinRespaldo))
         {
             var parExiste = await _db.Empleados
@@ -75,12 +61,7 @@ public class EmployeeController : ControllerBase
                             && e.Estado == "Activo");
 
             if (parExiste)
-                return BadRequest(new
-                {
-                    mensaje = "El par (Número de Empleado + PIN) ya existe en AppCheck. " +
-                              "Cambia el número de empleado o el PIN.",
-                    tipo = "par_duplicado"
-                });
+                return BadRequest(new { mensaje = "El par (Número de Empleado + PIN) ya existe en AppCheck.", tipo = "par_duplicado" });
         }
 
         var existe = await _db.Empleados
@@ -89,27 +70,17 @@ public class EmployeeController : ControllerBase
         if (existe)
             return BadRequest(new { mensaje = $"Ya existe un empleado con el número {request.NumeroEmpleado}." });
 
-        // 👆 GENERAR EMBEDDING CON IA REAL (si se envió foto)
         string? faceEmbeddingStr = null;
         if (!string.IsNullOrEmpty(request.FotoBase64))
         {
             var embedding = _facialService.GenerarEmbedding(request.FotoBase64);
-            if (embedding.Length > 0)
-            {
-                faceEmbeddingStr = string.Join(",", embedding);
-            }
-            else
-            {
-                return BadRequest(new { mensaje = "No se pudo detectar el rostro en la foto enviada. Intenta con una foto de frente y bien iluminada." });
-            }
+            if (embedding.Length > 0) faceEmbeddingStr = string.Join(",", embedding);
+            else return BadRequest(new { mensaje = "No se pudo detectar el rostro en la foto enviada." });
         }
 
-        // 🛡️ Validar que si el método requiere rostro, se haya enviado foto
         var metodosConRostro = new[] { "QR+Rostro", "ID+Rostro", "Rostro" };
         if (metodosConRostro.Contains(request.MetodoLecturaPreferido) && string.IsNullOrEmpty(faceEmbeddingStr))
-        {
             return BadRequest(new { mensaje = $"El método {request.MetodoLecturaPreferido} requiere una foto para registrar el rostro." });
-        }
 
         var nuevoEmpleado = new Empleado
         {
@@ -119,11 +90,34 @@ public class EmployeeController : ControllerBase
             PinRespaldo = request.PinRespaldo,
             MetodoLecturaPreferido = request.MetodoLecturaPreferido,
             FaceTemplateHash = faceEmbeddingStr,
-            Estado = "Activo"
+            Estado = "Activo",
+            SucursalId = request.SucursalId
         };
 
-        _db.Empleados.Add(nuevoEmpleado);
-        await _db.SaveChangesAsync();
+        // 🛡️ GUARDADO BLINDADO DEL EMPLEADO
+        try
+        {
+            _db.Empleados.Add(nuevoEmpleado);
+            await _db.SaveChangesAsync();
+
+            if (request.TurnoId.HasValue)
+            {
+                _db.EmpleadoTurnos.Add(new EmpleadoTurno
+                {
+                    EmpleadoTurnoId = Guid.NewGuid(),
+                    EmpleadoId = nuevoEmpleado.EmpleadoId,
+                    TurnoId = request.TurnoId.Value,
+                    FechaInicio = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR ALTA EMPLEADO] {ex.Message}");
+            if (ex.InnerException != null) Console.WriteLine($"[INNER] {ex.InnerException.Message}");
+            return StatusCode(500, new { mensaje = "No se pudo guardar el empleado. Verifica que la Sucursal y Turno existan." });
+        }
 
         var acuse = $@"
 ACUSE DE ACUERDO DE REGISTRO ELECTRÓNICO DE JORNADA
@@ -163,19 +157,14 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
     public async Task<IActionResult> ListarEmpleados()
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
-        if (string.IsNullOrEmpty(cuentaIdClaim))
-            return Unauthorized();
+        if (string.IsNullOrEmpty(cuentaIdClaim)) return Unauthorized();
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
-
         var rol = User.FindFirst("Rol")?.Value;
 
         IQueryable<Empleado> query = _db.Empleados.Include(e => e.Cuenta);
 
-        if (rol != "SuperAdmin")
-        {
-            query = query.Where(e => e.CuentaId == cuentaId);
-        }
+        if (rol != "SuperAdmin") query = query.Where(e => e.CuentaId == cuentaId);
 
         var empleados = await query
             .Select(e => new
@@ -194,7 +183,6 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         return Ok(empleados);
     }
 
-    // 👆 ENDPOINT DE METODO DE LECTURA (para el Kiosko)
     [HttpGet("metodo-lectura/{numeroEmpleado}")]
     [AllowAnonymous]
     public async Task<IActionResult> ObtenerMetodoLectura(string numeroEmpleado, [FromQuery] string tokenKiosko)
@@ -205,14 +193,12 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         var puntoLectura = await _db.PuntosLectura
             .FirstOrDefaultAsync(p => p.TokenHash == tokenHash && p.EstadoLicencia != "Suspendido");
 
-        if (puntoLectura == null)
-            return Unauthorized(new { mensaje = "Kiosko no autorizado." });
+        if (puntoLectura == null) return Unauthorized(new { mensaje = "Kiosko no autorizado." });
 
         var empleado = await _db.Empleados
             .FirstOrDefaultAsync(e => e.NumeroEmpleado == numeroEmpleado && e.CuentaId == puntoLectura.CuentaId);
 
-        if (empleado == null)
-            return NotFound(new { mensaje = "Empleado no encontrado." });
+        if (empleado == null) return NotFound(new { mensaje = "Empleado no encontrado." });
 
         return Ok(new
         {
@@ -222,7 +208,6 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         });
     }
 
-    // 👆 VALIDAR PIN (para el Kiosko) — Solo para método ID+PIN
     public class ValidarPinRequest
     {
         public string NumeroEmpleado { get; set; } = string.Empty;
@@ -239,8 +224,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
                                   && e.PinRespaldo == request.Pin 
                                   && e.Estado == "Activo");
 
-        if (empleado == null)
-            return Unauthorized(new { mensaje = "ID o PIN incorrecto." });
+        if (empleado == null) return Unauthorized(new { mensaje = "ID o PIN incorrecto." });
 
         return Ok(new
         {
@@ -253,40 +237,30 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
 
     public class EditarEmpleadoRequest
     {
-        public string NumeroEmpleado { get; set; } = string.Empty;   // 🆕 NUEVO
+        public string NumeroEmpleado { get; set; } = string.Empty;
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "QR";
         public string Estado { get; set; } = "Activo";
         public string? FotoBase64 { get; set; }
+        public Guid? SucursalId { get; set; }
+        public Guid? TurnoId { get; set; }
     }
 
     [HttpPut("{empleadoId}")]
     public async Task<IActionResult> EditarEmpleado(Guid empleadoId, [FromBody] EditarEmpleadoRequest request)
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
-        if (string.IsNullOrEmpty(cuentaIdClaim))
-            return Unauthorized();
+        if (string.IsNullOrEmpty(cuentaIdClaim)) return Unauthorized();
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
+        var empleado = await _db.Empleados.FirstOrDefaultAsync(e => e.EmpleadoId == empleadoId && e.CuentaId == cuentaId);
 
-        var empleado = await _db.Empleados
-            .FirstOrDefaultAsync(e => e.EmpleadoId == empleadoId && e.CuentaId == cuentaId);
+        if (empleado == null) return NotFound(new { mensaje = "Empleado no encontrado en tu cuenta." });
 
-        if (empleado == null)
-            return NotFound(new { mensaje = "Empleado no encontrado en tu cuenta." });
-
-        // 🛡️ Validar que el método de lectura sea canónico
         if (!MetodosValidos.Contains(request.MetodoLecturaPreferido))
-        {
-            return BadRequest(new
-            {
-                mensaje = $"Método de lectura inválido: '{request.MetodoLecturaPreferido}'. " +
-                          $"Valores permitidos: {string.Join(", ", MetodosValidos)}"
-            });
-        }
+            return BadRequest(new { mensaje = "Método de lectura inválido." });
 
-        // 🛡️ Validar par (NumeroEmpleado + PinRespaldo) único GLOBAL (excluyendo el actual)
         if (!string.IsNullOrWhiteSpace(request.PinRespaldo))
         {
             var parExiste = await _db.Empleados
@@ -296,35 +270,51 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
                             && e.Estado == "Activo");
 
             if (parExiste)
-                return BadRequest(new
-                {
-                    mensaje = "El par (Número de Empleado + PIN) ya existe en AppCheck. " +
-                              "Cambia el número de empleado o el PIN.",
-                    tipo = "par_duplicado"
-                });
+                return BadRequest(new { mensaje = "El par (Número de Empleado + PIN) ya existe en AppCheck.", tipo = "par_duplicado" });
         }
 
-        empleado.NumeroEmpleado = request.NumeroEmpleado;   // 🆕 NUEVO
-        empleado.NombreCompleto = request.NombreCompleto;
-        empleado.PinRespaldo = request.PinRespaldo;
-        empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
-        empleado.Estado = request.Estado;
-
-        // 👆 SI SE ENVÍA NUEVA FOTO, REGENERAR EMBEDDING
-        if (!string.IsNullOrEmpty(request.FotoBase64))
+        try
         {
-            var embedding = _facialService.GenerarEmbedding(request.FotoBase64);
-            if (embedding.Length > 0)
+            empleado.NumeroEmpleado = request.NumeroEmpleado;
+            empleado.NombreCompleto = request.NombreCompleto;
+            empleado.PinRespaldo = request.PinRespaldo;
+            empleado.MetodoLecturaPreferido = request.MetodoLecturaPreferido;
+            empleado.Estado = request.Estado;
+            empleado.SucursalId = request.SucursalId;
+
+            if (!string.IsNullOrEmpty(request.FotoBase64))
             {
-                empleado.FaceTemplateHash = string.Join(",", embedding);
+                var embedding = _facialService.GenerarEmbedding(request.FotoBase64);
+                if (embedding.Length > 0) empleado.FaceTemplateHash = string.Join(",", embedding);
+                else return BadRequest(new { mensaje = "No se pudo detectar el rostro en la foto." });
             }
-            else
+
+            await _db.SaveChangesAsync();
+
+            // Actualizar Turno (cerrando el anterior)
+            if (request.TurnoId.HasValue)
             {
-                return BadRequest(new { mensaje = "No se pudo detectar el rostro en la foto enviada. Intenta con una foto de frente y bien iluminada." });
+                var asignacionActiva = await _db.EmpleadoTurnos
+                    .FirstOrDefaultAsync(et => et.EmpleadoId == empleadoId && et.FechaFin == null);
+                
+                if (asignacionActiva != null) asignacionActiva.FechaFin = DateTime.UtcNow.AddDays(-1);
+
+                _db.EmpleadoTurnos.Add(new EmpleadoTurno
+                {
+                    EmpleadoTurnoId = Guid.NewGuid(),
+                    EmpleadoId = empleadoId,
+                    TurnoId = request.TurnoId.Value,
+                    FechaInicio = DateTime.UtcNow
+                });
+                await _db.SaveChangesAsync();
             }
         }
-
-        await _db.SaveChangesAsync();
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[ERROR EDITAR EMPLEADO] {ex.Message}");
+            if (ex.InnerException != null) Console.WriteLine($"[INNER] {ex.InnerException.Message}");
+            return StatusCode(500, new { mensaje = "No se pudo actualizar el empleado. Verifica los datos." });
+        }
 
         return Ok(new
         {
@@ -338,26 +328,17 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
     public async Task<IActionResult> EliminarEmpleado(Guid empleadoId)
     {
         var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
-        if (string.IsNullOrEmpty(cuentaIdClaim))
-            return Unauthorized();
+        if (string.IsNullOrEmpty(cuentaIdClaim)) return Unauthorized();
 
         var cuentaId = Guid.Parse(cuentaIdClaim);
+        var empleado = await _db.Empleados.FirstOrDefaultAsync(e => e.EmpleadoId == empleadoId && e.CuentaId == cuentaId);
 
-        var empleado = await _db.Empleados
-            .FirstOrDefaultAsync(e => e.EmpleadoId == empleadoId && e.CuentaId == cuentaId);
+        if (empleado == null) return NotFound(new { mensaje = "Empleado no encontrado." });
 
-        if (empleado == null)
-            return NotFound(new { mensaje = "Empleado no encontrado en tu cuenta." });
+        var tieneChecadas = await _db.RegistrosJornada.AnyAsync(r => r.EmpleadoId == empleadoId);
+        if (tieneChecadas) return BadRequest(new { mensaje = "No se puede eliminar: tiene checadas registradas." });
 
-        var tieneChecadas = await _db.RegistrosJornada
-            .AnyAsync(r => r.EmpleadoId == empleadoId);
-
-        if (tieneChecadas)
-            return BadRequest(new { mensaje = "No se puede eliminar el empleado porque tiene checadas registradas." });
-
-        var acuerdos = await _db.AcuerdosFirmados
-            .Where(a => a.EmpleadoId == empleadoId)
-            .ToListAsync();
+        var acuerdos = await _db.AcuerdosFirmados.Where(a => a.EmpleadoId == empleadoId).ToListAsync();
         _db.AcuerdosFirmados.RemoveRange(acuerdos);
 
         _db.Empleados.Remove(empleado);

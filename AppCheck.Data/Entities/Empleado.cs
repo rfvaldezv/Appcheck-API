@@ -12,6 +12,10 @@ public class Empleado
     public string Estado { get; set; } = "Activo";
     public bool PuedeUsarHuella { get; set; } = false;  // Admin decide
 
+    // 👇 NUEVO: Relación con Sucursal 👇
+    public Guid? SucursalId { get; set; }
+    public Sucursal? Sucursal { get; set; }
+
     public Cuenta Cuenta { get; set; } = null!;
     public ICollection<RegistroJornada> RegistrosJornada { get; set; } = new List<RegistroJornada>();
     public ICollection<AcuerdoFirmado> AcuerdosFirmados { get; set; } = new List<AcuerdoFirmado>();
