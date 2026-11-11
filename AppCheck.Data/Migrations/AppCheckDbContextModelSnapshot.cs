@@ -238,6 +238,9 @@ namespace AppCheck.Data.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
 
+                    b.Property<bool>("PuedeUsarHuella")
+                        .HasColumnType("bit");
+
                     b.HasKey("EmpleadoId");
 
                     b.HasIndex("CuentaId");
@@ -401,10 +404,19 @@ namespace AppCheck.Data.Migrations
                     b.Property<DateTimeOffset?>("FechaExpiracionLicencia")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<decimal?>("Latitud")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal?>("Longitud")
+                        .HasColumnType("decimal(18,2)");
+
                     b.Property<string>("Nombre")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("RadioMetros")
+                        .HasColumnType("int");
 
                     b.Property<string>("Tipo")
                         .IsRequired()
@@ -454,7 +466,7 @@ namespace AppCheck.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.Property<Guid>("PuntoLecturaId")
+                    b.Property<Guid?>("PuntoLecturaId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTimeOffset>("TimestampLocal")
@@ -660,9 +672,7 @@ namespace AppCheck.Data.Migrations
 
                     b.HasOne("AppCheck.Data.Entities.PuntoLectura", "PuntoLectura")
                         .WithMany("RegistrosJornada")
-                        .HasForeignKey("PuntoLecturaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("PuntoLecturaId");
 
                     b.Navigation("Empleado");
 

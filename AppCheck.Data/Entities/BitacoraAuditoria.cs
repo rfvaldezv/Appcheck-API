@@ -8,4 +8,7 @@ public class BitacoraAuditoria
     public string Accion { get; set; } = string.Empty;
     public string? Detalle { get; set; }
     public DateTimeOffset Fecha { get; set; } = DateTimeOffset.UtcNow;
+
+    public Cuenta Cuenta { get; set; } = null!;
+    public Usuario? Usuario { get; set; }
 }

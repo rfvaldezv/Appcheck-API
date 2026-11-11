@@ -636,4 +636,174 @@ public class ChecadaController : ControllerBase
             hashRegistro = registro.HashRegistro
         });
     }
+
+    // =====================================================
+    // 6. CREAR CHECADA MANUALMENTE (solo RH)
+    // =====================================================
+    public class CrearChecadaRequest
+    {
+        public Guid EmpleadoId { get; set; }
+        public string TipoChecada { get; set; } = "Entrada";
+        public DateTimeOffset TimestampServidor { get; set; }
+        public string? MetodoUsado { get; set; } = "Manual";
+        public string? MotivoCreacion { get; set; }
+    }
+
+    [HttpPost("manual")]
+    [Authorize]
+    public async Task<IActionResult> CrearChecadaManual([FromBody] CrearChecadaRequest request)
+    {
+        var rol = User.FindFirst("Rol")?.Value;
+        if (rol != "SuperAdmin" && rol != "TenantAdmin")
+            return Forbid();
+
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+        var usuarioId = User.FindFirst("UsuarioId")?.Value;
+
+        // Buscar empleado
+        var empleado = await _db.Empleados
+            .FirstOrDefaultAsync(e => e.EmpleadoId == request.EmpleadoId);
+
+        if (empleado == null)
+            return NotFound(new { mensaje = "Empleado no encontrado." });
+
+        // Validar que el empleado pertenece a la cuenta (si no es SuperAdmin)
+        if (rol != "SuperAdmin" && empleado.CuentaId != cuentaId)
+            return Unauthorized(new { mensaje = "No tienes permiso para crear checadas para este empleado." });
+
+        if (empleado.Estado != "Activo")
+            return BadRequest(new { mensaje = "El empleado está inactivo." });
+
+        // Generar hash
+        var dataToHash = $"{empleado.EmpleadoId}|{request.TipoChecada}|{request.TimestampServidor.ToUnixTimeSeconds()}|MANUAL";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(dataToHash)));
+
+        // Crear registro
+        var nuevoRegistro = new RegistroJornada
+        {
+            EmpleadoId = empleado.EmpleadoId,
+            PuntoLecturaId = null, // Manual, sin kiosko
+            TipoChecada = request.TipoChecada,
+            TimestampServidor = request.TimestampServidor,
+            TimestampLocal = request.TimestampServidor,
+            Latitud = null,
+            Longitud = null,
+            MetodoUsado = request.MetodoUsado ?? "Manual",
+            HashRegistro = hash,
+            EsOffline = false
+        };
+
+        _db.RegistrosJornada.Add(nuevoRegistro);
+
+        // Auditoría
+        try
+        {
+            var log = new BitacoraAuditoria
+            {
+                LogId = Guid.NewGuid(),
+                CuentaId = empleado.CuentaId,
+                UsuarioId = usuarioId != null ? Guid.Parse(usuarioId) : null,
+                Accion = "CREAR_CHECADA",
+                Detalle = $"Registro creado manualmente: " +
+                          $"Empleado {empleado.NumeroEmpleado} ({empleado.NombreCompleto}), " +
+                          $"Tipo: {request.TipoChecada}, " +
+                          $"Timestamp: {request.TimestampServidor}, " +
+                          $"Método: {request.MetodoUsado ?? "Manual"}. " +
+                          $"Motivo: {request.MotivoCreacion ?? "No especificado"}",
+                Fecha = DateTimeOffset.UtcNow
+            };
+            _db.BitacoraAuditoria.Add(log);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Auditoría] No se pudo guardar el log: {ex.Message}");
+        }
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            mensaje = "Checada creada correctamente.",
+            registroId = nuevoRegistro.RegistroId,
+            empleado = new { empleado.EmpleadoId, empleado.NumeroEmpleado, empleado.NombreCompleto },
+            tipoChecada = nuevoRegistro.TipoChecada,
+            timestampServidor = nuevoRegistro.TimestampServidor,
+            metodoUsado = nuevoRegistro.MetodoUsado,
+            hashRegistro = nuevoRegistro.HashRegistro
+        });
+    }
+
+    // =====================================================
+    // 7. ELIMINAR CHECADA (solo RH)
+    // =====================================================
+    [HttpDelete("{registroId}")]
+    [Authorize]
+    public async Task<IActionResult> EliminarChecada(Guid registroId, [FromQuery] string? motivo)
+    {
+        var rol = User.FindFirst("Rol")?.Value;
+        if (rol != "SuperAdmin" && rol != "TenantAdmin")
+            return Forbid();
+
+        var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+        if (string.IsNullOrEmpty(cuentaIdClaim))
+            return Unauthorized();
+
+        var cuentaId = Guid.Parse(cuentaIdClaim);
+        var usuarioId = User.FindFirst("UsuarioId")?.Value;
+
+        var registro = await _db.RegistrosJornada
+            .Include(r => r.Empleado)
+            .FirstOrDefaultAsync(r => r.RegistroId == registroId);
+
+        if (registro == null)
+            return NotFound(new { mensaje = "Checada no encontrada." });
+
+        // Validar que el registro pertenece a la cuenta (si no es SuperAdmin)
+        if (rol != "SuperAdmin" && registro.Empleado.CuentaId != cuentaId)
+            return Unauthorized(new { mensaje = "No tienes permiso para eliminar esta checada." });
+
+        // Guardar datos para auditoría
+        var detalle = $"Registro eliminado: " +
+                      $"Empleado {registro.Empleado.NumeroEmpleado} ({registro.Empleado.NombreCompleto}), " +
+                      $"Tipo: {registro.TipoChecada}, " +
+                      $"Timestamp: {registro.TimestampServidor}, " +
+                      $"Método: {registro.MetodoUsado}. " +
+                      $"Motivo: {motivo ?? "No especificado"}";
+
+        var cuentaRegistro = registro.Empleado.CuentaId;
+
+        // Eliminar
+        _db.RegistrosJornada.Remove(registro);
+
+        // Auditoría
+        try
+        {
+            var log = new BitacoraAuditoria
+            {
+                LogId = Guid.NewGuid(),
+                CuentaId = cuentaRegistro,
+                UsuarioId = usuarioId != null ? Guid.Parse(usuarioId) : null,
+                Accion = "ELIMINAR_CHECADA",
+                Detalle = detalle,
+                Fecha = DateTimeOffset.UtcNow
+            };
+            _db.BitacoraAuditoria.Add(log);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Auditoría] No se pudo guardar el log: {ex.Message}");
+        }
+
+        await _db.SaveChangesAsync();
+
+        return Ok(new
+        {
+            mensaje = "Checada eliminada correctamente.",
+            registroId
+        });
+    }
 }
