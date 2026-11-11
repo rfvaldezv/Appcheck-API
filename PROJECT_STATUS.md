@@ -810,3 +810,43 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 - [ ] **Reporte de Retardos:** Filtro específico para ver solo retardos por empleado.
 - [ ] **Geofence:** Validar que la checada se haga dentro del radio de la sucursal (opcional por empleado).
 - [ ] **Liveness detection:** Anti-spoofing para el reconocimiento facial.
+
+
+## 🏆 HITO — Batería de Reportes Analíticos (11/Nov/2026)
+
+**Estado:** 🟢 5 reportes operativos con exportación a PDF y Excel.
+
+### ✅ Reportes Implementados
+| # | Reporte | Endpoint | Exportación |
+|---|---------|----------|-------------|
+| 1 | **Dashboard** | `GET /api/analytics/dashboard` | (visual) |
+| 2 | **Asistencia** | `GET /api/analytics/asistencia` | PDF + Excel |
+| 3 | **Horas Extra** | `GET /api/analytics/horas-extra` | PDF + Excel |
+| 4 | **Retardos** | `GET /api/analytics/retardos` | PDF + Excel |
+| 5 | **Ausencias** | `GET /api/analytics/ausencias` | PDF + Excel |
+
+### 🎨 Características del PDF
+- Logo corporativo de AppCheck.
+- Encabezado con título del reporte y fecha de generación.
+- Resumen ejecutivo con KPIs en tarjetas.
+- Tabla con colores corporativos (verde teal).
+- Pie de página con paginación ("Página X de Y").
+- Diseño profesional listo para RH y nómina.
+
+### 🔧 Widget Reutilizable
+- `ReportesFiltros` (Flutter): Estandariza la barra de filtros (Fecha Inicio, Fecha Fin, Empresa, Sucursal, Empleado) en todos los reportes.
+
+### 🐛 Bugs corregidos
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `AnalyticsController` perdió el Dashboard | Restaurado con estructura JSON anidada. |
+| 2 | `DbUpdateConcurrencyException` al editar turnos | `ExecuteDeleteAsync` + `ChangeTracker.Clear()`. |
+| 3 | Métodos duplicados en `api_service.dart` | Eliminados manualmente. |
+| 4 | Error de sintaxis por llaves mal cerradas | Corregido el cierre del método `ReporteHorasExtra`. |
+
+### 🗺️ Roadmap post-reportes
+- [ ] **Geofence:** Validar GPS dentro del radio de la sucursal.
+- [ ] **Liveness:** Anti-spoofing para el reconocimiento facial.
+- [ ] **WebAuthn:** Huella en PWA.
+- [ ] **Documentación de instalación** para clientes finales.
+
