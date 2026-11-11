@@ -20,6 +20,10 @@ public class AppCheckDbContext : DbContext
     public DbSet<Factura> Facturas { get; set; }
     public DbSet<ConfiguracionComision> ConfiguracionesComision { get; set; }
     public DbSet<Liquidacion> Liquidaciones { get; set; }
+    public DbSet<Sucursal> Sucursales { get; set; }
+    public DbSet<Turno> Turnos { get; set; }
+    public DbSet<TurnoDetalle> TurnoDetalles { get; set; }
+    public DbSet<EmpleadoTurno> EmpleadoTurnos { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
