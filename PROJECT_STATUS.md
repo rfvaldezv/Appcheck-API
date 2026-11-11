@@ -712,3 +712,27 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 ### 🎯 Próximo paso inmediato
 - [ ] Registrar empleados reales (FASE 2).
 - [ ] Documentar instalación de APK + PWA para clientes.
+
+## 🏆 HITO — Backend Multi-Sucursal y Multi-Turno (10/Nov/2026)
+
+**Estado:** 🟢 Backend listo y probado en producción.
+
+### ✅ Lo que se logró
+- **Base de Datos:** Creación de las tablas `Sucursales`, `Turnos`, `TurnoDetalle` y `EmpleadoTurnos`.
+- **API Endpoints Nuevos:**
+  - `GET/POST /api/Sucursal` (Gestión de sucursales).
+  - `GET/POST /api/Turno` (Gestión de turnos con detalle por día de la semana).
+  - `POST /api/Turno/asignar` (Asignación de turnos a empleados, con soporte para rotación por fechas).
+- **Validación:** Todos los endpoints probados exitosamente vía PowerShell y registros verificados en SQL Server.
+
+### 🐛 Bugs corregidos / Mejoras
+| # | Detalle | Fix |
+|---|---------|-----|
+| 1 | Error de Namespaces en Controladores | Se corrigieron los `using` a `AppCheck.Data` y `AppCheck.Data.Entities`. |
+| 2 | Endpoint GET de Sucursal devolvía un objeto | Se ajustará en el próximo sprint para que devuelva un `List` siempre. |
+
+### 🗺️ Roadmap Actualizado
+- [ ] **Fase B (Frontend):** Crear la interfaz en el Admin Web para gestionar Sucursales y Turnos (CRUD visual).
+- [ ] **Fase B (Reportes):** Asociar las checadas al `TurnoId` para calcular retardos exactos según el horario del empleado.
+- [ ] **Fase C (Geofence):** Validar que el GPS de la checada esté dentro del `RadioMetros` de la Sucursal.
+- [ ] **Deuda Técnica:** Fix de acentos (Mojibake) en el Admin Web.
