@@ -15,7 +15,7 @@ namespace AppCheck.API.Controllers
         public AnalyticsController(AppCheckDbContext db) => _db = db;
 
         // =====================================================
-        // 1. DASHBOARD (El que se perdió)
+        // 1. DASHBOARD
         // =====================================================
         [HttpGet("dashboard")]
         public async Task<IActionResult> ObtenerDashboard(
@@ -31,7 +31,6 @@ namespace AppCheck.API.Controllers
             var inicio = (fechaInicio ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)).Date;
             var fin = (fechaFin ?? DateTime.UtcNow).Date;
 
-            // 1. Checadas del período
             var queryChecadas = _db.RegistrosJornada
                 .Include(r => r.Empleado)
                 .Where(r => r.TimestampServidor.Date >= inicio && r.TimestampServidor.Date <= fin);
@@ -39,12 +38,10 @@ namespace AppCheck.API.Controllers
             if (rol != "SuperAdmin") queryChecadas = queryChecadas.Where(r => r.Empleado.CuentaId == cuentaId);
             var checadasList = await queryChecadas.ToListAsync();
 
-            // 2. Empleados
             var queryEmpleados = _db.Empleados.Where(e => e.Estado == "Activo");
             if (rol != "SuperAdmin") queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaId);
             var totalEmpleados = await queryEmpleados.CountAsync();
 
-            // 3. Puntualidad
             var entradas = checadasList.Where(r => r.TipoChecada == "Entrada").ToList();
             int puntuales = 0;
             int retardos = 0;
@@ -80,31 +77,22 @@ namespace AppCheck.API.Controllers
             var ausencias = totalEmpleados - empleadosConChecada;
             if (ausencias < 0) ausencias = 0;
 
-            // 4. Gráficos (Checadas por día)
             var checadasPorDia = checadasList
                 .GroupBy(r => r.TimestampServidor.Date)
                 .Select(g => new { fecha = g.Key.ToString("yyyy-MM-dd"), total = g.Count() })
-                .OrderBy(x => x.fecha)
-                .ToList();
+                .OrderBy(x => x.fecha).ToList();
 
-            // 5. Gráficos (Métodos usados)
             var metodosUsados = checadasList
                 .GroupBy(r => r.MetodoUsado ?? "Manual")
-                .Select(g => new { metodo = g.Key, total = g.Count() })
-                .ToList();
+                .Select(g => new { metodo = g.Key, total = g.Count() }).ToList();
 
-            // 6. Devolver formato esperado por el Frontend
             return Ok(new
             {
-                periodo = new
-                {
-                    inicio = inicio.ToString("yyyy-MM-dd"),
-                    fin = fin.ToString("yyyy-MM-dd")
-                },
+                periodo = new { inicio = inicio.ToString("yyyy-MM-dd"), fin = fin.ToString("yyyy-MM-dd") },
                 kpis = new
                 {
                     totalChecadas = checadasList.Count,
-                    totalEmpleados = totalEmpleados,
+                    totalEmpleados,
                     porcentajePuntuales,
                     porcentajeRetardos,
                     horasExtra = 0,
@@ -112,16 +100,12 @@ namespace AppCheck.API.Controllers
                     totalSucursales = await _db.Sucursales.CountAsync(s => s.Activa),
                     totalKioskos = await _db.PuntosLectura.CountAsync(p => p.EstadoLicencia == "Activa")
                 },
-                graficos = new
-                {
-                    checadasPorDia,
-                    metodosUsados
-                }
+                graficos = new { checadasPorDia, metodosUsados }
             });
         }
 
         // =====================================================
-        // 2. ASISTENCIA POR PERIODO (El nuevo)
+        // 2. ASISTENCIA POR PERIODO
         // =====================================================
         [HttpGet("asistencia")]
         public async Task<IActionResult> AsistenciaPorPeriodo(
@@ -143,12 +127,8 @@ namespace AppCheck.API.Controllers
             if (fin < inicio) return BadRequest(new { mensaje = "La fecha fin no puede ser menor a la fecha inicio." });
 
             var queryEmpleados = _db.Empleados.Where(e => e.Estado == "Activo");
-            
-            if (rol != "SuperAdmin") 
-                queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaIdToken);
-            else if (cuentaId.HasValue) 
-                queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaId.Value);
-
+            if (rol != "SuperAdmin") queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaIdToken);
+            else if (cuentaId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaId.Value);
             if (sucursalId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.SucursalId == sucursalId.Value);
             if (empleadoId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.EmpleadoId == empleadoId.Value);
 
@@ -176,34 +156,21 @@ namespace AppCheck.API.Controllers
                     if (turnoAsignado != null && turnoAsignado.Turno != null)
                     {
                         var reglaDia = turnoAsignado.Turno.Detalles.FirstOrDefault(d => d.DiaSemana == diaSemana);
-                        
                         if (reglaDia != null && reglaDia.EsLaborable)
                         {
                             horaEntradaTurno = reglaDia.HoraEntrada.ToString(@"hh\:mm");
-                            
                             var checada = await _db.RegistrosJornada
-                                .Where(r => r.EmpleadoId == emp.EmpleadoId 
-                                         && r.TipoChecada == "Entrada"
-                                         && r.TimestampServidor.Date == dia)
-                                .OrderBy(r => r.TimestampServidor)
-                                .FirstOrDefaultAsync();
+                                .Where(r => r.EmpleadoId == emp.EmpleadoId && r.TipoChecada == "Entrada" && r.TimestampServidor.Date == dia)
+                                .OrderBy(r => r.TimestampServidor).FirstOrDefaultAsync();
 
-                            if (checada == null)
-                            {
-                                estatus = "Falta";
-                            }
+                            if (checada == null) estatus = "Falta";
                             else
                             {
                                 horaEntradaReal = checada.TimestampServidor.ToString("HH:mm");
                                 var horaEsperada = dia.Add(reglaDia.HoraEntrada);
                                 var tolerancia = TimeSpan.FromMinutes(reglaDia.ToleranciaMin);
-
                                 if (checada.TimestampServidor <= horaEsperada + tolerancia) estatus = "Puntual";
-                                else
-                                {
-                                    estatus = "Retardo";
-                                    minutosRetardo = (int)(checada.TimestampServidor - horaEsperada).TotalMinutes;
-                                }
+                                else { estatus = "Retardo"; minutosRetardo = (int)(checada.TimestampServidor - horaEsperada).TotalMinutes; }
                             }
                         }
                         else if (reglaDia != null && !reglaDia.EsLaborable) estatus = "Día Descanso";
@@ -214,7 +181,7 @@ namespace AppCheck.API.Controllers
                         resultado.Add(new
                         {
                             fecha = dia.ToString("yyyy-MM-dd"),
-                            diaSemana = diaSemana,
+                            diaSemana,
                             empleadoId = emp.EmpleadoId,
                             numeroEmpleado = emp.NumeroEmpleado,
                             nombreCompleto = emp.NombreCompleto,
@@ -242,6 +209,211 @@ namespace AppCheck.API.Controllers
                 },
                 detalle = resultado
             });
+        }
+
+        // =====================================================
+        // 3. HORAS EXTRA
+        // =====================================================
+        [HttpGet("horas-extra")]
+        public async Task<IActionResult> ReporteHorasExtra(
+            [FromQuery] DateTime? fechaInicio = null, [FromQuery] DateTime? fechaFin = null,
+            [FromQuery] Guid? cuentaId = null, [FromQuery] Guid? sucursalId = null, [FromQuery] Guid? empleadoId = null)
+        {
+            var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+            if (string.IsNullOrEmpty(cuentaIdClaim)) return Unauthorized();
+            var cuentaIdToken = Guid.Parse(cuentaIdClaim);
+            var rol = User.FindFirst("Rol")?.Value;
+
+            var inicio = (fechaInicio ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)).Date;
+            var fin = (fechaFin ?? DateTime.UtcNow).Date;
+
+            var queryEmpleados = _db.Empleados.Where(e => e.Estado == "Activo");
+            if (rol != "SuperAdmin") queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaIdToken);
+            else if (cuentaId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaId.Value);
+            if (sucursalId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.SucursalId == sucursalId.Value);
+            if (empleadoId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.EmpleadoId == empleadoId.Value);
+
+            var empleados = await queryEmpleados.ToListAsync();
+            var resultado = new List<object>();
+
+            for (var dia = inicio; dia <= fin; dia = dia.AddDays(1))
+            {
+                int diaSemana = (int)dia.DayOfWeek;
+                if (diaSemana == 0) diaSemana = 7;
+
+                foreach (var emp in empleados)
+                {
+                    var turnoAsignado = await _db.EmpleadoTurnos
+                        .Include(et => et.Turno).ThenInclude(t => t.Detalles)
+                        .FirstOrDefaultAsync(et => et.EmpleadoId == emp.EmpleadoId && et.FechaInicio <= dia && (et.FechaFin == null || et.FechaFin >= dia));
+
+                    if (turnoAsignado?.Turno != null)
+                    {
+                        var reglaDia = turnoAsignado.Turno.Detalles.FirstOrDefault(d => d.DiaSemana == diaSemana);
+                        if (reglaDia != null && reglaDia.EsLaborable)
+                        {
+                            var checadas = await _db.RegistrosJornada
+                                .Where(r => r.EmpleadoId == emp.EmpleadoId && r.TimestampServidor.Date == dia)
+                                .OrderBy(r => r.TimestampServidor).ToListAsync();
+                            var entrada = checadas.FirstOrDefault(r => r.TipoChecada == "Entrada");
+                            var salida = checadas.LastOrDefault(r => r.TipoChecada == "Salida");
+
+                            double horasTrabajadas = 0;
+                            double horasEsperadas = (reglaDia.HoraSalida - reglaDia.HoraEntrada).TotalHours;
+                            double horasExtra = 0;
+
+                            if (entrada != null && salida != null)
+                            {
+                                horasTrabajadas = (salida.TimestampServidor - entrada.TimestampServidor).TotalHours;
+                                if (horasTrabajadas > horasEsperadas) horasExtra = horasTrabajadas - horasEsperadas;
+                            }
+                            if (entrada != null || salida != null)
+                            {
+                                resultado.Add(new {
+                                    fecha = dia.ToString("yyyy-MM-dd"), empleadoId = emp.EmpleadoId,
+                                    numeroEmpleado = emp.NumeroEmpleado, nombreCompleto = emp.NombreCompleto,
+                                    turnoNombre = turnoAsignado.Turno.Nombre,
+                                    horaEntrada = entrada?.TimestampServidor.ToString("HH:mm"),
+                                    horaSalida = salida?.TimestampServidor.ToString("HH:mm"),
+                                    horasTrabajadas = Math.Round(horasTrabajadas, 2),
+                                    horasEsperadas = Math.Round(horasEsperadas, 2),
+                                    horasExtra = Math.Round(horasExtra, 2)
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(new { fechaInicio = inicio.ToString("yyyy-MM-dd"), fechaFin = fin.ToString("yyyy-MM-dd"),
+		resumen = new { 
+		    totalRegistros = resultado.Count, 
+		    totalHorasExtra = Math.Round((double)resultado.Sum(r => ((dynamic)r).horasExtra), 2)
+		},
+          });  // ← ✅ CORRECTO (cierra Ok y punto y coma)
+
+	}
+
+        // =====================================================
+        // 4. RETARDOS
+        // =====================================================
+        [HttpGet("retardos")]
+        public async Task<IActionResult> ReporteRetardos(
+            [FromQuery] DateTime? fechaInicio = null, [FromQuery] DateTime? fechaFin = null,
+            [FromQuery] Guid? cuentaId = null, [FromQuery] Guid? sucursalId = null, [FromQuery] Guid? empleadoId = null)
+        {
+            var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+            if (string.IsNullOrEmpty(cuentaIdClaim)) return Unauthorized();
+            var cuentaIdToken = Guid.Parse(cuentaIdClaim);
+            var rol = User.FindFirst("Rol")?.Value;
+
+            var inicio = (fechaInicio ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)).Date;
+            var fin = (fechaFin ?? DateTime.UtcNow).Date;
+
+            var queryEmpleados = _db.Empleados.Where(e => e.Estado == "Activo");
+            if (rol != "SuperAdmin") queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaIdToken);
+            else if (cuentaId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaId.Value);
+            if (sucursalId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.SucursalId == sucursalId.Value);
+            if (empleadoId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.EmpleadoId == empleadoId.Value);
+
+            var empleados = await queryEmpleados.ToListAsync();
+            var resultado = new List<object>();
+
+            for (var dia = inicio; dia <= fin; dia = dia.AddDays(1))
+            {
+                int diaSemana = (int)dia.DayOfWeek;
+                if (diaSemana == 0) diaSemana = 7;
+
+                foreach (var emp in empleados)
+                {
+                    var turnoAsignado = await _db.EmpleadoTurnos
+                        .Include(et => et.Turno).ThenInclude(t => t.Detalles)
+                        .FirstOrDefaultAsync(et => et.EmpleadoId == emp.EmpleadoId && et.FechaInicio <= dia && (et.FechaFin == null || et.FechaFin >= dia));
+
+                    if (turnoAsignado?.Turno != null)
+                    {
+                        var reglaDia = turnoAsignado.Turno.Detalles.FirstOrDefault(d => d.DiaSemana == diaSemana);
+                        if (reglaDia != null && reglaDia.EsLaborable)
+                        {
+                            var checada = await _db.RegistrosJornada
+                                .Where(r => r.EmpleadoId == emp.EmpleadoId && r.TipoChecada == "Entrada" && r.TimestampServidor.Date == dia)
+                                .OrderBy(r => r.TimestampServidor).FirstOrDefaultAsync();
+                            if (checada != null)
+                            {
+                                var horaEsperada = dia.Add(reglaDia.HoraEntrada);
+                                var tolerancia = TimeSpan.FromMinutes(reglaDia.ToleranciaMin);
+                                if (checada.TimestampServidor > horaEsperada + tolerancia)
+                                {
+                                    var minutosRetardo = (int)(checada.TimestampServidor - horaEsperada).TotalMinutes;
+                                    resultado.Add(new { fecha = dia.ToString("yyyy-MM-dd"), empleadoId = emp.EmpleadoId,
+                                        numeroEmpleado = emp.NumeroEmpleado, nombreCompleto = emp.NombreCompleto,
+                                        turnoNombre = turnoAsignado.Turno.Nombre, horaEntradaTurno = reglaDia.HoraEntrada.ToString(@"hh\:mm"),
+                                        horaEntradaReal = checada.TimestampServidor.ToString("HH:mm"), minutosRetardo });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(new { fechaInicio = inicio.ToString("yyyy-MM-dd"), fechaFin = fin.ToString("yyyy-MM-dd"),
+                resumen = new { totalRetardos = resultado.Count, totalMinutos = resultado.Sum(r => ((dynamic)r).minutosRetardo) },
+                detalle = resultado });
+        }
+
+        // =====================================================
+        // 5. AUSENCIAS
+        // =====================================================
+        [HttpGet("ausencias")]
+        public async Task<IActionResult> ReporteAusencias(
+            [FromQuery] DateTime? fechaInicio = null, [FromQuery] DateTime? fechaFin = null,
+            [FromQuery] Guid? cuentaId = null, [FromQuery] Guid? sucursalId = null, [FromQuery] Guid? empleadoId = null)
+        {
+            var cuentaIdClaim = User.FindFirst("CuentaId")?.Value;
+            if (string.IsNullOrEmpty(cuentaIdClaim)) return Unauthorized();
+            var cuentaIdToken = Guid.Parse(cuentaIdClaim);
+            var rol = User.FindFirst("Rol")?.Value;
+
+            var inicio = (fechaInicio ?? new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1)).Date;
+            var fin = (fechaFin ?? DateTime.UtcNow).Date;
+
+            var queryEmpleados = _db.Empleados.Where(e => e.Estado == "Activo");
+            if (rol != "SuperAdmin") queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaIdToken);
+            else if (cuentaId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.CuentaId == cuentaId.Value);
+            if (sucursalId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.SucursalId == sucursalId.Value);
+            if (empleadoId.HasValue) queryEmpleados = queryEmpleados.Where(e => e.EmpleadoId == empleadoId.Value);
+
+            var empleados = await queryEmpleados.ToListAsync();
+            var resultado = new List<object>();
+
+            for (var dia = inicio; dia <= fin; dia = dia.AddDays(1))
+            {
+                int diaSemana = (int)dia.DayOfWeek;
+                if (diaSemana == 0) diaSemana = 7;
+
+                foreach (var emp in empleados)
+                {
+                    var turnoAsignado = await _db.EmpleadoTurnos
+                        .Include(et => et.Turno).ThenInclude(t => t.Detalles)
+                        .FirstOrDefaultAsync(et => et.EmpleadoId == emp.EmpleadoId && et.FechaInicio <= dia && (et.FechaFin == null || et.FechaFin >= dia));
+
+                    if (turnoAsignado?.Turno != null)
+                    {
+                        var reglaDia = turnoAsignado.Turno.Detalles.FirstOrDefault(d => d.DiaSemana == diaSemana);
+                        if (reglaDia != null && reglaDia.EsLaborable)
+                        {
+                            var tieneChecada = await _db.RegistrosJornada
+                                .AnyAsync(r => r.EmpleadoId == emp.EmpleadoId && r.TipoChecada == "Entrada" && r.TimestampServidor.Date == dia);
+                            if (!tieneChecada)
+                            {
+                                resultado.Add(new { fecha = dia.ToString("yyyy-MM-dd"), empleadoId = emp.EmpleadoId,
+                                    numeroEmpleado = emp.NumeroEmpleado, nombreCompleto = emp.NombreCompleto,
+                                    turnoNombre = turnoAsignado.Turno.Nombre, horaEntradaTurno = reglaDia.HoraEntrada.ToString(@"hh\:mm") });
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(new { fechaInicio = inicio.ToString("yyyy-MM-dd"), fechaFin = fin.ToString("yyyy-MM-dd"),
+                resumen = new { totalAusencias = resultado.Count }, detalle = resultado });
         }
     }
 }

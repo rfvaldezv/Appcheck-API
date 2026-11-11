@@ -784,3 +784,29 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 - [ ] **Cálculo de Retardos:** Cruzar la checada con el `TurnoId` del empleado para determinar si llegó puntual o tarde.
 - [ ] **Geofence:** Validar que el GPS de la checada esté dentro del radio de la sucursal.
 
+
+## 🏆 HITO — Reportes con Filtros, PDF Corporativo y Dashboard Restaurado (11/Nov/2026)
+
+**Estado:** 🟢 Reporte de Asistencia funcional + Dashboard estable.
+
+### ✅ Lo que se logró
+- **Reporte de Asistencia:** Nuevo endpoint `GET /api/analytics/asistencia` que acepta filtros de rango de fechas, empresa, sucursal y empleado. Cruza los turnos para determinar Puntual, Retardo o Falta.
+- **Exportación a Excel y PDF:** El reporte se puede descargar en ambos formatos. El PDF incluye logo corporativo, KPIs en tarjetas, tabla estilizada, paginación y fecha de generación.
+- **Dashboard Restaurado:** Se recuperó el endpoint `GET /api/analytics/dashboard` con la estructura JSON anidada (`periodo`, `kpis`, `graficos`) que el Admin espera.
+- **Identidad Visual:** Se agregó favicon, íconos PWA, colores corporativos y pantalla de carga en el `index.html` del Admin.
+- **Widget de Filtros Reutilizable:** Se creó `ReportesFiltros` en Flutter para estandarizar los filtros en todos los reportes futuros.
+
+### 🐛 Bugs corregidos en esta sesión
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `AnalyticsController` perdió el endpoint del Dashboard | Se restauró con la estructura JSON anidada correcta. |
+| 2 | `DbUpdateConcurrencyException` al editar turnos | Se usó `ExecuteDeleteAsync` y `ChangeTracker.Clear()` para aislar las operaciones. |
+| 3 | `rootBundle` no definido en el PDF | Se agregó `import 'package:flutter/services.dart';`. |
+| 4 | Duplicación de `_pdfKpi` | Se eliminó la copia sobrante. |
+| 5 | `pubspec.yaml` con indentación incorrecta | Se corrigió la sección `flutter:` y los `assets`. |
+
+### 🗺️ Próximo paso
+- [ ] **Reporte de Horas Extra:** Calcular las horas trabajadas vs. las esperadas por turno.
+- [ ] **Reporte de Retardos:** Filtro específico para ver solo retardos por empleado.
+- [ ] **Geofence:** Validar que la checada se haga dentro del radio de la sucursal (opcional por empleado).
+- [ ] **Liveness detection:** Anti-spoofing para el reconocimiento facial.
