@@ -32,10 +32,9 @@ public class EmployeeController : ControllerBase
         public string NombreCompleto { get; set; } = string.Empty;
         public string PinRespaldo { get; set; } = string.Empty;
         public string MetodoLecturaPreferido { get; set; } = "QR";
-        public string? FotoBase64 { get; set; }
-        
         public Guid? SucursalId { get; set; }
         public Guid? TurnoId { get; set; }
+        public List<string> FotosBase64 { get; set; } = new List<string>();
     }
 
     [HttpPost]
@@ -71,16 +70,22 @@ public class EmployeeController : ControllerBase
             return BadRequest(new { mensaje = $"Ya existe un empleado con el número {request.NumeroEmpleado}." });
 
         string? faceEmbeddingStr = null;
-        if (!string.IsNullOrEmpty(request.FotoBase64))
+        if (request.FotosBase64 != null && request.FotosBase64.Count > 0)
         {
-            var embedding = _facialService.GenerarEmbedding(request.FotoBase64);
-            if (embedding.Length > 0) faceEmbeddingStr = string.Join(",", embedding);
-            else return BadRequest(new { mensaje = "No se pudo detectar el rostro en la foto enviada." });
+            var embedding = _facialService.GenerarEmbeddingPromediado(request.FotosBase64);
+            if (embedding.Length > 0)
+            {
+                faceEmbeddingStr = string.Join(",", embedding);
+            }
+            else
+            {
+                return BadRequest(new { mensaje = "No se pudo detectar el rostro en ninguna de las fotos enviadas." });
+            }
         }
 
         var metodosConRostro = new[] { "QR+Rostro", "ID+Rostro", "Rostro" };
         if (metodosConRostro.Contains(request.MetodoLecturaPreferido) && string.IsNullOrEmpty(faceEmbeddingStr))
-            return BadRequest(new { mensaje = $"El método {request.MetodoLecturaPreferido} requiere una foto para registrar el rostro." });
+            return BadRequest(new { mensaje = $"El método {request.MetodoLecturaPreferido} requiere al menos una foto." });
 
         var nuevoEmpleado = new Empleado
         {
@@ -94,7 +99,6 @@ public class EmployeeController : ControllerBase
             SucursalId = request.SucursalId
         };
 
-        // 🛡️ GUARDADO BLINDADO DEL EMPLEADO
         try
         {
             _db.Empleados.Add(nuevoEmpleado);
@@ -115,30 +119,8 @@ public class EmployeeController : ControllerBase
         catch (Exception ex)
         {
             Console.WriteLine($"[ERROR ALTA EMPLEADO] {ex.Message}");
-            if (ex.InnerException != null) Console.WriteLine($"[INNER] {ex.InnerException.Message}");
-            return StatusCode(500, new { mensaje = "No se pudo guardar el empleado. Verifica que la Sucursal y Turno existan." });
+            return StatusCode(500, new { mensaje = "No se pudo guardar el empleado. Verifica la Sucursal y Turno." });
         }
-
-        var acuse = $@"
-ACUSE DE ACUERDO DE REGISTRO ELECTRÓNICO DE JORNADA
----------------------------------------------------
-Empleado: {nuevoEmpleado.NombreCompleto}
-Número de Empleado: {nuevoEmpleado.NumeroEmpleado}
-Método de lectura preferido: {nuevoEmpleado.MetodoLecturaPreferido}
-Fecha de alta: {DateTimeOffset.UtcNow:dd/MM/yyyy HH:mm:ss} UTC
-
-El empleado acepta que su jornada laboral será registrada mediante el sistema AppCheck,
-conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
-";
-
-        var acuerdo = new AcuerdoFirmado
-        {
-            EmpleadoId = nuevoEmpleado.EmpleadoId,
-            DocumentoUrl = $"acuerdo_{nuevoEmpleado.EmpleadoId}.txt",
-            FechaFirma = DateTimeOffset.UtcNow
-        };
-        _db.AcuerdosFirmados.Add(acuerdo);
-        await _db.SaveChangesAsync();
 
         return Ok(new
         {
@@ -147,9 +129,7 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
             numeroEmpleado = nuevoEmpleado.NumeroEmpleado,
             nombre = nuevoEmpleado.NombreCompleto,
             metodoLectura = nuevoEmpleado.MetodoLecturaPreferido,
-            tieneRostro = !string.IsNullOrEmpty(nuevoEmpleado.FaceTemplateHash),
-            acuseContenido = acuse,
-            acuerdoId = acuerdo.AcuerdoId
+            tieneRostro = !string.IsNullOrEmpty(nuevoEmpleado.FaceTemplateHash)
         });
     }
 
@@ -291,7 +271,6 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
 
             await _db.SaveChangesAsync();
 
-            // Actualizar Turno (cerrando el anterior)
             if (request.TurnoId.HasValue)
             {
                 var asignacionActiva = await _db.EmpleadoTurnos
@@ -338,8 +317,17 @@ conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
         var tieneChecadas = await _db.RegistrosJornada.AnyAsync(r => r.EmpleadoId == empleadoId);
         if (tieneChecadas) return BadRequest(new { mensaje = "No se puede eliminar: tiene checadas registradas." });
 
-        var acuerdos = await _db.AcuerdosFirmados.Where(a => a.EmpleadoId == empleadoId).ToListAsync();
+        // 👇 ELIMINAR DEPENDENCIAS PRIMERO (la causa del error 500) 👇
+        var turnosAsignados = await _db.EmpleadoTurnos
+            .Where(et => et.EmpleadoId == empleadoId)
+            .ToListAsync();
+        _db.EmpleadoTurnos.RemoveRange(turnosAsignados);
+
+        var acuerdos = await _db.AcuerdosFirmados
+            .Where(a => a.EmpleadoId == empleadoId)
+            .ToListAsync();
         _db.AcuerdosFirmados.RemoveRange(acuerdos);
+        // 👆 FIN DE LO NUEVO 👆
 
         _db.Empleados.Remove(empleado);
         await _db.SaveChangesAsync();

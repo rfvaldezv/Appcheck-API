@@ -40,22 +40,21 @@ builder.Services.AddSingleton<FacialRecognitionService>();
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 4. Configurar CORS (Permitir todo para el MVP)
+// 4. Configurar CORS
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
+    options.AddPolicy("AllowAdminWeb", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy.WithOrigins("https://admin.appcheck.com.mx")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
     });
 });
 
-// 5. Swagger con seguridad JWT
+// 5. Swagger
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo { Title = "AppCheck API", Version = "v1" });
-
     options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -63,9 +62,8 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Ingresa el token JWT. Ejemplo: 'eyJhbGci...'"
+        Description = "Ingresa el token JWT."
     });
-
     options.AddSecurityRequirement(document => new OpenApiSecurityRequirement
     {
         [new OpenApiSecuritySchemeReference("Bearer", document)] = []
@@ -81,10 +79,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// 👈 1. CORS PRIMERO (para que las cabeceras se añadan a todas las respuestas)
-app.UseCors("AllowAll");
-
-// 👈 2. Middleware para capturar excepciones y forzar CORS en errores 500
+// 👇 Middleware para capturar excepciones y forzar CORS en errores 500
 app.Use(async (context, next) =>
 {
     try
@@ -93,7 +88,6 @@ app.Use(async (context, next) =>
     }
     catch (Exception ex)
     {
-        // Forzar las cabeceras CORS en la respuesta de error
         context.Response.Headers["Access-Control-Allow-Origin"] = "*";
         context.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
         context.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
@@ -102,6 +96,8 @@ app.Use(async (context, next) =>
     }
 });
 
+app.UseRouting();
+app.UseCors("AllowAdminWeb");  // 👈 CORREGIDO: Ahora sí coincide con la política definida arriba
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
