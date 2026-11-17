@@ -37,3 +37,6 @@ Models/
 
 # Archivos temporales de diagnóstico
 InspectFaceOnnx.cs
+publish_scd/
+publish/
+*.pdb
