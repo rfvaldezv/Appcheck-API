@@ -25,4 +25,12 @@
     <ProjectReference Include="..\AppCheck.Data\AppCheck.Data.csproj" />
   </ItemGroup>
 
+  <!-- 👇 SOLO el recognition_resnet27.onnx (el yolov5s-face.onnx viene del paquete NuGet) -->
+  <ItemGroup>
+    <Content Include="Models\recognition_resnet27.onnx">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

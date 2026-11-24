@@ -122,6 +122,29 @@ public class EmployeeController : ControllerBase
             return StatusCode(500, new { mensaje = "No se pudo guardar el empleado. Verifica la Sucursal y Turno." });
         }
 
+        // 👇 GENERAR ACUSE LEGAL 👇
+        var acuse = $@"
+	ACUSE DE ACUERDO DE REGISTRO ELECTRÓNICO DE JORNADA
+	---------------------------------------------------
+	Empleado: {nuevoEmpleado.NombreCompleto}
+	Número de Empleado: {nuevoEmpleado.NumeroEmpleado}
+	Método de lectura preferido: {nuevoEmpleado.MetodoLecturaPreferido}
+	Fecha de alta: {DateTimeOffset.UtcNow:dd/MM/yyyy HH:mm:ss} UTC
+
+	El empleado acepta que su jornada laboral será registrada mediante el sistema AppCheck,
+	conforme al artículo 132, fracción XXXIV de la Ley Federal del Trabajo.
+	";
+
+        var acuerdo = new AcuerdoFirmado
+        {
+            EmpleadoId = nuevoEmpleado.EmpleadoId,
+            DocumentoUrl = $"acuerdo_{nuevoEmpleado.EmpleadoId}.txt",
+            FechaFirma = DateTimeOffset.UtcNow
+        };
+        _db.AcuerdosFirmados.Add(acuerdo);
+        await _db.SaveChangesAsync();
+        // 👆 FIN DEL ACUSE 👆
+
         return Ok(new
         {
             mensaje = "Empleado dado de alta correctamente.",

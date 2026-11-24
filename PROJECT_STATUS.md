@@ -850,3 +850,49 @@ Sistema de control de asistencia (reloj checador) que usa el \*\*celular del emp
 - [ ] **WebAuthn:** Huella en PWA.
 - [ ] **Documentación de instalación** para clientes finales.
 
+
+## 🔧 Fix Crítico — API Operativa en Producción con Self-Contained + OutOfProcess (17/Nov/2026)
+
+**Estado:** 🟢 API funcionando en `https://api.appcheck.com.mx` con `AppCheck.API.exe` (Self-Contained).
+
+### ✅ Lo que se logró
+- **Publicación Self-Contained:** La API se publica con `dotnet publish -c Release -r win-x64 --self-contained true`, empaquetando el runtime de .NET dentro de la carpeta. Ya no depende del Hosting Bundle ni del runtime compartido.
+- **Configuración de IIS:** El `web.config` usa `processPath=".\AppCheck.API.exe"` y `hostingModel="OutOfProcess"`. Esto resuelve el error 500.30 (inprocess no lograba cargar la app SCD).
+- **Health check:** Responde 200 OK en `https://api.appcheck.com.mx/api/health`.
+- **Login:** Responde 200 OK con JWT válido.
+
+### 🐛 Bugs corregidos
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | Error 500.30 (inprocess no arranca la SCD) | Cambiar a `hostingModel="OutOfProcess"` |
+| 2 | Error 500.19 (web.config sin `<configuration>` raíz) | Restaurar la etiqueta raíz |
+| 3 | Error 500 en login por `EliminarEmpleado` | Eliminar turnos y acuerdos antes de borrar al empleado |
+| 4 | Error 405 (WebDAV) | Remover WebDAV del `web.config` |
+| 5 | Error CORS en login | Configurar `UseCors("AllowAdminWeb")` correctamente en `Program.cs` |
+
+### 🎯 Configuración final del `web.config`
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <system.webServer>
+    <modules>
+      <remove name="WebDAVModule" />
+    </modules>
+    <handlers>
+      <remove name="WebDAV" />
+      <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+    </handlers>
+    <aspNetCore processPath=".\AppCheck.API.exe" arguments="" stdoutLogEnabled="true" stdoutLogFile=".\logs\stdout" hostingModel="OutOfProcess">
+      <environmentVariables>
+        <environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Production" />
+      </environmentVariables>
+    </aspNetCore>
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="52428800" />
+        <verbs allowUnlisted="true" />
+      </requestFiltering>
+    </security>
+  </system.webServer>
+</configuration>
+

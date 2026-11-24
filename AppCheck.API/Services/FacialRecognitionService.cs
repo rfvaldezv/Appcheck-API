@@ -35,12 +35,17 @@ namespace AppCheck.API.Services
                 using var original = SKBitmap.Decode(bytes);
                 if (original == null) return Array.Empty<float>();
 
-                // 1. Detectar rostro (simplificado: usar la imagen completa si no hay detector activo)
-                // Si tienes un detector YOLO funcionando, aquí lo llamarías.
-                // Por ahora, redimensionamos la imagen completa a 128x128 para el reconocimiento.
-                using var rostro128 = RedimensionarYRecortar(original, 128, 128);
+                // 1. Detectar rostro con YOLOv5s-face
+                var rostroRect = DetectarRostro(original);
+                if (rostroRect == null) return Array.Empty<float>();
 
-                // 2. Generar embedding
+                // 2. Recortar el rostro detectado
+                var rostroRecortado = RecortarRostro(original, rostroRect.Value);
+
+                // 3. Redimensionar a 128x128
+                using var rostro128 = RedimensionarYRecortar(rostroRecortado, 128, 128);
+
+                // 4. Generar embedding
                 return GenerarEmbeddingDesdeRostro(rostro128);
             }
             catch (Exception ex)
@@ -138,6 +143,8 @@ namespace AppCheck.API.Services
                 };
                 using var results = session.Run(inputs);
                 var output = results.First().AsTensor<float>();
+		Console.WriteLine($"[Detector] Forma de salida: [{string.Join(", ", output.Dimensions.ToArray())}]");
+		Console.WriteLine($"[Detector] Total elementos: {output.Length}");
                 return output.ToArray();
             }
             catch (Exception ex)
@@ -164,5 +171,95 @@ namespace AppCheck.API.Services
             return (dot + 1) / 2 * 100;
         }
 
+        /// <summary>
+        /// Detecta el rostro más grande en la imagen usando YOLOv5s-face.
+        /// </summary>
+        private SKRect? DetectarRostro(SKBitmap image)
+        {
+            try
+            {
+                // Redimensionar a 640x640 para YOLO
+                using var resized = new SKBitmap(640, 640);
+                using (var canvas = new SKCanvas(resized))
+                {
+                    canvas.DrawBitmap(image, new SKRect(0, 0, 640, 640));
+                }
+
+                // Crear tensor de entrada [1, 3, 640, 640]
+                var input = new DenseTensor<float>(new[] { 1, 3, 640, 640 });
+                for (int y = 0; y < 640; y++)
+                {
+                    for (int x = 0; x < 640; x++)
+                    {
+                        var color = resized.GetPixel(x, y);
+                        input[0, 0, y, x] = color.Red / 255f;
+                        input[0, 1, y, x] = color.Green / 255f;
+                        input[0, 2, y, x] = color.Blue / 255f;
+                    }
+                }
+
+                using var session = new InferenceSession(_detectorModelPath);
+	        // 👇 Obtener el nombre de la entrada directamente del modelo
+        	var inputName = session.InputMetadata.Keys.First();
+	        Console.WriteLine($"[Detector] Nombre de entrada: {inputName}");
+                var inputs = new List<NamedOnnxValue>
+                {
+			NamedOnnxValue.CreateFromTensor("input", input)
+                };
+                using var results = session.Run(inputs);
+                var output = results.First().AsTensor<float>();
+
+                // Buscar la detección con mayor confianza
+                float maxConf = 0;
+                SKRect? bestRect = null;
+                var data = output.ToArray();
+                int numDetections = data.Length / 6; // [x1,y1,x2,y2,conf,class]
+
+                for (int i = 0; i < numDetections; i++)
+                {
+                    int offset = i * 6;
+                    float conf = data[offset + 4];
+                    if (conf > maxConf && conf > 0.5f)
+                    {
+                        maxConf = conf;
+                        float x1 = data[offset + 0] * image.Width / 640f;
+                        float y1 = data[offset + 1] * image.Height / 640f;
+                        float x2 = data[offset + 2] * image.Width / 640f;
+                        float y2 = data[offset + 3] * image.Height / 640f;
+                        bestRect = new SKRect(x1, y1, x2, y2);
+                    }
+                }
+
+                return bestRect;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[FacialRecognition] Error en detector: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Recorta el rostro detectado de la imagen original.
+        /// </summary>
+        private SKBitmap RecortarRostro(SKBitmap original, SKRect rostro)
+        {
+            // Asegurar que el rectángulo esté dentro de los límites
+            float left = Math.Max(0, rostro.Left);
+            float top = Math.Max(0, rostro.Top);
+            float right = Math.Min(original.Width, rostro.Right);
+            float bottom = Math.Min(original.Height, rostro.Bottom);
+
+            int width = (int)(right - left);
+            int height = (int)(bottom - top);
+            if (width <= 0 || height <= 0) return original;
+
+            var result = new SKBitmap(width, height);
+            using (var canvas = new SKCanvas(result))
+            {
+                canvas.DrawBitmap(original, new SKRect(left, top, right, bottom), new SKRect(0, 0, width, height));
+            }
+            return result;
+        }
     }
 }
