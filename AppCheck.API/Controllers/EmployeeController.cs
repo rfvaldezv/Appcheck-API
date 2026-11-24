@@ -152,7 +152,9 @@ public class EmployeeController : ControllerBase
             numeroEmpleado = nuevoEmpleado.NumeroEmpleado,
             nombre = nuevoEmpleado.NombreCompleto,
             metodoLectura = nuevoEmpleado.MetodoLecturaPreferido,
-            tieneRostro = !string.IsNullOrEmpty(nuevoEmpleado.FaceTemplateHash)
+            tieneRostro = !string.IsNullOrEmpty(nuevoEmpleado.FaceTemplateHash),
+            acuseContenido = acuse,       // 👈 AGREGAR ESTA LÍNEA
+            acuerdoId = acuerdo.AcuerdoId // 👈 Y ESTA (opcional)
         });
     }
 
